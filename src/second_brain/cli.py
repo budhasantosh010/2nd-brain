@@ -26,6 +26,7 @@ from second_brain.mcp.server import serve_stdio
 from second_brain.models import ProcessingState
 from second_brain.observability.status import brain_status
 from second_brain.paths import BrainPaths
+from second_brain.providers.smoke import provider_smoke
 from second_brain.rebuild import RebuildService
 from second_brain.review.service import ReviewService
 from second_brain.storage.sqlite import SQLiteStore
@@ -42,11 +43,13 @@ maintain_app = typer.Typer(help="Run idempotent maintenance routines.", no_args_
 mcp_app = typer.Typer(help="Expose policy-scoped brain tools over local MCP.", no_args_is_help=True)
 source_app = typer.Typer(help="Inspect and change per-source egress permissions.", no_args_is_help=True)
 trust_app = typer.Typer(help="Manage trusted local ingestion paths.", no_args_is_help=True)
+provider_app = typer.Typer(help="Inspect configured AI-provider readiness.", no_args_is_help=True)
 app.add_typer(review_app, name="review")
 app.add_typer(maintain_app, name="maintain")
 app.add_typer(mcp_app, name="mcp")
 app.add_typer(source_app, name="source")
 app.add_typer(trust_app, name="trust")
+app.add_typer(provider_app, name="provider")
 
 
 def _runtime() -> tuple[BrainPaths, SQLiteStore]:
@@ -287,6 +290,12 @@ def trust_add(path: Annotated[Path, typer.Argument()]) -> None:
 def trust_remove(path: Annotated[Path, typer.Argument()]) -> None:
     """Remove a trusted path."""
     _json({"trusted_paths": TrustStore().remove(path)})
+
+
+@provider_app.command("test")
+def provider_test() -> None:
+    """Report provider/model/SDK/credential/health and a harmless structured smoke result."""
+    _json(provider_smoke(load_config(BrainPaths.discover())).to_dict())
 
 
 @mcp_app.command("serve")
