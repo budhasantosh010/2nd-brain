@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ['3.12']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --extra dev
+
+      - name: Public repository safety
+        run: uv run python scripts/verify_public_repo.py
+
+      - name: Schema and vault-template validation
+        run: uv run python scripts/validate_project.py
+
+      - name: Ruff
+        run: uv run ruff check .
+
+      - name: Mypy
+        run: uv run mypy src/second_brain
+
+      - name: Pytest
+        run: uv run pytest -q
+
+      - name: Package build
+        run: uv build
