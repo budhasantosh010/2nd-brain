@@ -12,7 +12,7 @@ from typing import Any
 import frontmatter
 
 from second_brain.config import load_config
-from second_brain.embeddings.local import LocalEmbeddingProvider
+from second_brain.embeddings.factory import create_embedding_provider
 from second_brain.models import (
     ClaimRecord,
     ConceptRecord,
@@ -46,7 +46,7 @@ class RebuildService:
         self._archive_generated_db()
         store = SQLiteStore(self.paths.db)
         store.initialize()
-        vectors = VectorStore(store, LocalEmbeddingProvider(self.config.embeddings.dimensions))
+        vectors = VectorStore(store, create_embedding_provider(self.config, self.paths))
         counts = {
             "sources": 0,
             "segments": 0,

@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from second_brain.config import load_config
-from second_brain.embeddings.local import LocalEmbeddingProvider
+from second_brain.embeddings.factory import create_embedding_provider
 from second_brain.models import ConceptRecord, OperationPlan, PlannedWrite, ReviewItemModel
 from second_brain.paths import BrainPaths
 from second_brain.review.renderer import render_dashboard, render_review
@@ -45,7 +45,7 @@ class ReviewService:
         config = load_config(self.paths)
         self.vectors = VectorStore(
             self.store,
-            LocalEmbeddingProvider(config.embeddings.dimensions),
+            create_embedding_provider(config, self.paths),
         )
 
     def stage(

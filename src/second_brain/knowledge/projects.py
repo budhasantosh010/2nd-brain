@@ -11,7 +11,8 @@ from uuid import uuid4
 
 import yaml
 
-from second_brain.embeddings.local import LocalEmbeddingProvider
+from second_brain.config import load_config
+from second_brain.embeddings.factory import create_embedding_provider
 from second_brain.models import PlannedWrite
 from second_brain.paths import BrainPaths
 from second_brain.review.service import ReviewService
@@ -62,7 +63,10 @@ class ProjectService:
         self.store.initialize()
         self.transactions = TransactionManager(self.paths, self.store)
         self.reviews = ReviewService(self.paths, self.store, self.transactions)
-        self.vectors = VectorStore(self.store, LocalEmbeddingProvider(384))
+        self.vectors = VectorStore(
+            self.store,
+            create_embedding_provider(load_config(self.paths), self.paths),
+        )
 
     def create(self, spec: ProjectSpec) -> str:
         project_id = f"PRJ-{uuid4()}"

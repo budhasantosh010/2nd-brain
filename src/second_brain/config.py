@@ -30,8 +30,11 @@ class AIConfig(BaseModel):
 
 
 class EmbeddingsConfig(BaseModel):
-    provider: str = "local"
+    provider: str = "hashing"
+    model: str | None = None
+    revision: str = "fastembed-model-registry"
     dimensions: int = Field(default=384, ge=64, le=4096)
+    schema_version: str = "embedding-v2"
 
 
 class RetrievalConfig(BaseModel):

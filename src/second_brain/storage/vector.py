@@ -1,22 +1,81 @@
-"""Rebuildable local vector index stored in SQLite for V1 portability."""
+"""Rebuildable local vector index with explicit embedding schema metadata."""
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from datetime import UTC, datetime
 from typing import Any
 
-from second_brain.embeddings.local import LocalEmbeddingProvider, cosine
+from second_brain.embeddings.base import EmbeddingMetadata, EmbeddingProvider
+from second_brain.embeddings.local import cosine
 from second_brain.models import SearchHit
 from second_brain.storage.sqlite import SQLiteStore
 
 
 class VectorStore:
-    def __init__(self, store: SQLiteStore, embedding: LocalEmbeddingProvider) -> None:
+    def __init__(self, store: SQLiteStore, embedding: EmbeddingProvider) -> None:
         self.store = store
         self.embedding = embedding
         self.store.initialize()
+        self.profile = self._ensure_profile(embedding.metadata)
+
+    def _ensure_profile(self, metadata: EmbeddingMetadata) -> EmbeddingMetadata:
+        target = metadata.with_timestamp()
+        stable = {
+            "provider": target.provider,
+            "model": target.model,
+            "revision": target.revision,
+            "dimensions": target.dimensions,
+            "schema_version": target.schema_version,
+            "learned": target.learned,
+        }
+        profile_id = hashlib.sha256(
+            json.dumps(stable, sort_keys=True).encode("utf-8")
+        ).hexdigest()[:24]
+        with self.store.transaction() as conn:
+            row = conn.execute(
+                "SELECT * FROM embedding_profiles WHERE active = 1 ORDER BY created_at DESC LIMIT 1"
+            ).fetchone()
+            current_key = (
+                (
+                    str(row["provider"]),
+                    str(row["model"]),
+                    str(row["revision"]),
+                    int(row["dimensions"]),
+                    str(row["schema_version"]),
+                )
+                if row is not None
+                else None
+            )
+            mismatch = current_key != target.profile_key()
+            if mismatch:
+                # Generated vectors are disposable; never mix incompatible vector schemas.
+                conn.execute("DELETE FROM vector_items")
+                conn.execute("UPDATE embedding_profiles SET active = 0")
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO embedding_profiles(
+                        profile_id,provider,model,revision,dimensions,schema_version,
+                        learned,created_at,active,metadata_json
+                    ) VALUES (?,?,?,?,?,?,?,?,1,?)
+                    """,
+                    (
+                        profile_id,
+                        target.provider,
+                        target.model,
+                        target.revision,
+                        target.dimensions,
+                        target.schema_version,
+                        int(target.learned),
+                        target.created_at,
+                        json.dumps(stable, sort_keys=True),
+                    ),
+                )
+            elif row is not None:
+                target = target.model_copy(update={"created_at": str(row["created_at"])})
+        return target
 
     def upsert(
         self,
@@ -51,6 +110,18 @@ class VectorStore:
         metadata: dict[str, Any] | None = None,
     ) -> None:
         vector = self.embedding.embed(text)
+        if len(vector) != self.profile.dimensions:
+            raise ValueError(
+                f"Vector dimension mismatch: profile={self.profile.dimensions} actual={len(vector)}"
+            )
+        payload = dict(metadata or {})
+        payload["_embedding"] = {
+            "provider": self.profile.provider,
+            "model": self.profile.model,
+            "revision": self.profile.revision,
+            "dimensions": self.profile.dimensions,
+            "schema_version": self.profile.schema_version,
+        }
         conn.execute(
             """
             INSERT INTO vector_items(
@@ -73,7 +144,7 @@ class VectorStore:
                 text,
                 json.dumps(vector),
                 datetime.now(UTC).isoformat(),
-                json.dumps(metadata or {}, sort_keys=True),
+                json.dumps(payload, sort_keys=True),
             ),
         )
 

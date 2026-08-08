@@ -14,7 +14,7 @@ import frontmatter
 import yaml
 
 from second_brain.config import BrainConfig, load_config
-from second_brain.embeddings.local import LocalEmbeddingProvider
+from second_brain.embeddings.factory import create_embedding_provider
 from second_brain.knowledge.contradiction import contradiction_candidate
 from second_brain.knowledge.extractor import KnowledgeExtractor
 from second_brain.knowledge.linker import derived_from, supports
@@ -83,7 +83,7 @@ class KnowledgeCompiler:
         self.repository = BrainRepository(self.store)
         self.vectors = VectorStore(
             self.store,
-            LocalEmbeddingProvider(self.config.embeddings.dimensions),
+            create_embedding_provider(self.config, self.paths),
         )
         self.provider = provider if provider is not None else create_provider(self.config)
         self.transactions = TransactionManager(self.paths, self.store)

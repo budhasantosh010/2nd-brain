@@ -12,8 +12,11 @@ ai:
   allow_cloud_ai: false
 
 embeddings:
-  provider: local
+  provider: hashing
+  model: null
+  revision: fastembed-model-registry
   dimensions: 384
+  schema_version: embedding-v2
 
 retrieval:
   lexical_enabled: true

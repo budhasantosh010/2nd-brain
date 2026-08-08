@@ -15,7 +15,7 @@ from uuid import uuid4
 import yaml
 
 from second_brain.config import BrainConfig, load_config
-from second_brain.embeddings.local import LocalEmbeddingProvider
+from second_brain.embeddings.factory import create_embedding_provider
 from second_brain.exceptions import SecurityViolation, UnsupportedSourceError
 from second_brain.ingest.archive import discover_folder_files
 from second_brain.ingest.dispatcher import ParserDispatcher
@@ -72,7 +72,7 @@ class IngestionService:
         self.store.initialize()
         self.vectors = VectorStore(
             self.store,
-            LocalEmbeddingProvider(self.config.embeddings.dimensions),
+            create_embedding_provider(self.config, self.paths),
         )
 
     def ingest(self, path: Path | str) -> list[IngestResult]:

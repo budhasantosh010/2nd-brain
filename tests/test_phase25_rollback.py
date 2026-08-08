@@ -34,6 +34,7 @@ def test_approved_concept_update_rolls_back_markdown_db_fts_vector_and_survives_
     old_markdown = "# Rollback Integrity\n\nOriginal canonical meaning.\n"
     note.write_text(old_markdown, encoding="utf-8")
     BrainRepository(store).store.initialize()
+    vectors = VectorStore(store, LocalEmbeddingProvider(384))
     with store.transaction() as conn:
         BrainRepository.upsert_concept_db(conn, concept, note_rel)
         store.index_text_in_connection(
@@ -44,7 +45,7 @@ def test_approved_concept_update_rolls_back_markdown_db_fts_vector_and_survives_
             text=f"{concept.title}\n{concept.summary}",
             locator=note_rel,
         )
-        VectorStore(store, LocalEmbeddingProvider(384)).upsert_in_connection(
+        vectors.upsert_in_connection(
             conn,
             object_id=concept.id,
             object_type="concept",
