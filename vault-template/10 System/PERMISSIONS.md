@@ -53,3 +53,7 @@ Do not auto-execute:
 - perform irreversible external actions.
 
 A staged note alone is not authorization for Level 3 external/destructive action. Explicit human action is required at the point of execution.
+<!-- PHASE25_FINAL -->
+## Phase 2.5 hardening
+
+Source cloud permission is explicit/audited and subordinate to secret/sensitive classification. Generated maintenance is lower-risk; meaning-changing restructuring remains review-gated.

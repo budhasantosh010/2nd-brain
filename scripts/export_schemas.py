@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from second_brain.knowledge.restructuring import RestructuringProposalModel
 from second_brain.models import (
     BrainAnswer,
     CanonicalFrontmatter,
@@ -16,6 +17,13 @@ from second_brain.models import (
     ReviewItemModel,
     SourceRecord,
 )
+from second_brain.storage.durable import (
+    CanonicalResolutionLedger,
+    KnowledgeGapEvent,
+    ProjectStateEvent,
+)
+from second_brain.transactions.db_mutations import TransactionSnapshot
+from second_brain.verification.synthesis import SynthesisOutput
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGET = ROOT / "schemas"
@@ -29,6 +37,12 @@ MODELS = {
     "brain-answer": BrainAnswer,
     "review-item": ReviewItemModel,
     "operation-plan": OperationPlan,
+    "transaction-snapshot": TransactionSnapshot,
+    "canonical-resolution-ledger": CanonicalResolutionLedger,
+    "project-state-event": ProjectStateEvent,
+    "knowledge-gap-event": KnowledgeGapEvent,
+    "restructuring-proposal": RestructuringProposalModel,
+    "grounded-synthesis-result": SynthesisOutput,
 }
 
 

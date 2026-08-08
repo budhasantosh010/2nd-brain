@@ -13,6 +13,7 @@
         "COMPLETE",
         "DUPLICATE",
         "NEEDS_AI",
+        "NEEDS_ENRICHMENT",
         "NEEDS_REVIEW",
         "UNSUPPORTED",
         "FAILED",

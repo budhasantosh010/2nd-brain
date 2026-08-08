@@ -53,3 +53,9 @@ Canonical writes create backups under `.brain/history/<operation-id>` and transa
 ## Corruption
 
 If `verify` reports a raw hash mismatch, treat it as corruption. Do not edit the stored Raw copy to “fix” it. Recover from an external backup/original source and investigate how the immutable file changed.
+<!-- PHASE25_FINAL -->
+## Phase 2.5 operations
+
+Before risky maintenance: run `second-brain doctor`, `second-brain verify`, then `second-brain backup create`. Verify the resulting archive with `second-brain backup verify <zip>`. `second-brain migrate` is idempotent and snapshots legacy Phase 1/2 canonical resolution/project/gap truth into durable Phase 2.5 ledgers. `second-brain rebuild` automatically performs that migration step before discarding generated DB/index state.
+
+Daemon startup clears only stale ownership, recovers interrupted transactions, then acquires the daemon lock. Inbox work is processed on every daemon cycle, so files dropped while the daemon was stopped are recovered after restart. Doctor diagnoses stale locks and canonical inconsistency; verify fails on meaning-bearing Markdown/DB disagreement instead of silently rewriting it.

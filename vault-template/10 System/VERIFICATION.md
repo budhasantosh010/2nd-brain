@@ -33,3 +33,7 @@ A superseded decision is evidence that the old position existed, not evidence th
 ## Citations
 
 Evidence references should retain source ID plus the most specific available locator (page, slide, range, line span, heading, paragraph, timestamp, etc.). A citation to a source that cannot be found must be surfaced as a verification problem.
+<!-- PHASE25_FINAL -->
+## Phase 2.5 hardening
+
+Ask from verified bounded evidence. Current questions must not present superseded/stale evidence as current. Invalid synthesis falls back to extractive evidence or grounded refusal.

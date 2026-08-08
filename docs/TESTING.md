@@ -42,3 +42,9 @@ Tests use synthetic data only. Temporary runtime vaults are created outside the 
 ## CI
 
 GitHub Actions runs on Windows and Linux using Python 3.12. It installs dev dependencies, checks public-repo safety, validates schemas/templates, runs Ruff, mypy, pytest and a package build. Live cloud calls are forbidden; deterministic/mock providers are used.
+<!-- PHASE25_FINAL -->
+## Phase 2.5 release matrix
+
+Release tests cover DB/index-aware rollback and restart, canonical rebuild fidelity, stale/live/PID-reuse locks, learned paraphrases and negatives, exact retrieval regression, Markdown graph markers/maps/broken links, duplicate/conflict/supersession intelligence, restructuring proposals, gap resolution, trusted cloud lanes and secret precedence, multimodal fallbacks/capability locators, synthesis rejection/fallback, real MCP stdio, provider smoke truthfulness, backup corruption, canonical consistency, migration idempotence, mixed-format corpus and Windows paths with spaces.
+
+Required gates are Ruff, strict `mypy src`, the full pytest suite with no hidden required skips, `scripts/validate_project.py`, `scripts/verify_public_repo.py`, package build, doctor, verify, semantic benchmark, rollback/rebuild/backup/MCP acceptance, and GitHub push + pull-request CI on the final SHA.

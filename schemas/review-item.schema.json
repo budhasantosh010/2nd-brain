@@ -78,7 +78,8 @@
         "approved",
         "rejected",
         "applied",
-        "expired"
+        "expired",
+        "rolled_back"
       ],
       "title": "Status",
       "type": "string"

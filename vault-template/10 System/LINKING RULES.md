@@ -29,3 +29,7 @@ Never collapse contradiction into a generic related link. Preserve both sides an
 ## Broken links
 
 Weekly maintenance detects relationships whose endpoints no longer exist. Generated maps may omit broken links, but canonical relationship records should be repaired through normal policy rather than silently discarded.
+<!-- PHASE25_FINAL -->
+## Phase 2.5 hardening
+
+Structured relationships are materialized into bounded generated wikilink blocks. Refresh must preserve human text outside markers and source-record FTS must match refreshed canonical Markdown.

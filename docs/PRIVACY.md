@@ -34,3 +34,7 @@ Operation history lives locally under `vault/.brain/history`. V1 does not automa
 ## Public-template identity
 
 The public `09 Identity` files are blank/generic templates. Real profile/goals/preferences/working style/constraints belong only in runtime copies populated during user onboarding.
+<!-- PHASE25_FINAL -->
+## Phase 2.5 privacy boundary
+
+The default brain remains local-only. Raw sources and canonical knowledge stay on disk; cloud AI is opt-in twice (global configuration plus source eligibility) and security scanning can only make egress more restrictive. Backups are local archives and may contain local-only/private raw sources, so they must be protected like the vault itself. Generated indexes are intentionally omitted from backups.

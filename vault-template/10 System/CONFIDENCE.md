@@ -18,3 +18,7 @@ Ranking systems may calculate similarity, authority, recency, retrieval fusion, 
 ## State changes
 
 Evidence state changes require provenance. A model may propose a change, but important upgrades to `verified`, conflict resolution, or meaning-changing downgrades must be justified by source evidence and the applicable review policy.
+<!-- PHASE25_FINAL -->
+## Phase 2.5 hardening
+
+Embedding similarity alone is never sufficient to silently merge knowledge. Semantic closeness creates candidates/related links; conflicts and temporal supersession are represented explicitly.

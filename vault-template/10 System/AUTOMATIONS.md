@@ -25,3 +25,7 @@ Identify completed/abandoned projects, recurring patterns and mistakes, emerging
 ## Missed-job recovery
 
 Persist last successful run timestamps. On daemon startup, determine which enabled scheduled routine should have run while the machine was offline. Run the missed routine once when appropriate, record recovery, and advance its last-run marker. Maintenance routines must be idempotent so recovery does not multiply briefs or state changes.
+<!-- PHASE25_FINAL -->
+## Phase 2.5 hardening
+
+Nightly/weekly maintenance may re-evaluate gaps, refresh graph/maps/dashboards and generate structural proposals. It must not perform automatic meaning-changing restructuring.

@@ -61,3 +61,9 @@ When no sufficient source-backed evidence exists, the exact answer begins:
 `I cannot verify this from the current brain.`
 
 The unresolved question is written to the `questions` table and generated `07 Operations/Unanswered Questions.md`, creating the knowledge-gap flywheel for future sources.
+<!-- PHASE25_FINAL -->
+## Phase 2.5 retrieval and synthesis
+
+Hybrid retrieval combines exact metadata/ID/hash/filename lookup, FTS lexical search, semantic vectors, graph expansion and temporal/current-state reranking. Fresh Phase 2.5 runtimes default to FastEmbed `BAAI/bge-small-en-v1.5` at 384 dimensions. Hashing remains an explicit fuzzy fallback, never represented as learned semantics.
+
+`ask` first builds a verified bounded evidence set. Current-state questions exclude stale/contradicted evidence unless the query is historical. Optional synthesis must map each claim to evidence IDs that exist inside that bounded pack; unknown IDs or unsupported exact-looking identifiers invalidate synthesis and trigger extractive fallback/refusal.

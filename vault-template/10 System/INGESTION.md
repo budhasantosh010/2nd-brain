@@ -63,3 +63,7 @@ Required deterministic V1 types: TXT, Markdown, CSV/TSV, JSON, YAML, HTML, PDF, 
 ## Idempotence
 
 A second observation of identical bytes does not create a second source. Same filename with different bytes is a new source/version. A failed job can be retried from its durable processing record without duplicating preservation or prior completed stages.
+<!-- PHASE25_FINAL -->
+## Phase 2.5 hardening
+
+Preserve-first ingestion records raw hash/provenance before optional enrichment or AI. Scanned PDF/image/audio/video enrichment is capability-based with page/timestamp locators.

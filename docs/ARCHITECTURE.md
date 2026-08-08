@@ -66,3 +66,9 @@ All canonical AI-driven multi-file mutations pass through the transaction manage
 ## Phase 3 compatibility
 
 A future Tauri/React application should call the same services/MCP/API layer and keep the same Markdown, raw source store, SQLite schema/migrations, retrieval, verification and transaction model. V1 deliberately avoids coupling canonical knowledge to Obsidian UI internals.
+<!-- PHASE25_FINAL -->
+## Phase 2.5 hardening architecture
+
+The authoritative chain is raw source bytes + canonical Markdown + durable ledgers (canonical resolutions, project-state history, knowledge-gap history, transaction/review provenance). SQLite, FTS, vectors, generated maps, caches, heartbeat and locks are derived/runtime state. A rebuild migrates legacy Phase 1/2 DB truth into durable ledgers before generated SQLite is archived, then regenerates structured/index state from canonical evidence.
+
+All canonical writes pass through explicit transaction file targets plus bounded database/index mutation scopes. Graph materialization writes only bounded generated relationship blocks and refreshes source-record FTS when those generated blocks change. Meaning-changing restructuring never auto-applies from an advisory finding.

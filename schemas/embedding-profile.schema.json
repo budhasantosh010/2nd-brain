@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "dimensions": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "learned": {
+      "type": "boolean"
+    },
+    "model": {
+      "type": "string"
+    },
+    "provider": {
+      "type": "string"
+    },
+    "revision": {
+      "type": "string"
+    },
+    "schema_version": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "provider",
+    "model",
+    "revision",
+    "dimensions",
+    "schema_version",
+    "learned"
+  ],
+  "title": "EmbeddingProfile",
+  "type": "object"
+}

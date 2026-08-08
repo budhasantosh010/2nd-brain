@@ -1,0 +1,76 @@
+{
+  "$defs": {
+    "DatabaseRowScope": {
+      "description": "A bounded set of rows affected by one logical mutation.",
+      "properties": {
+        "label": {
+          "default": "",
+          "title": "Label",
+          "type": "string"
+        },
+        "params": {
+          "items": {},
+          "title": "Params",
+          "type": "array"
+        },
+        "table": {
+          "title": "Table",
+          "type": "string"
+        },
+        "where_sql": {
+          "title": "Where Sql",
+          "type": "string"
+        }
+      },
+      "required": [
+        "table",
+        "where_sql"
+      ],
+      "title": "DatabaseRowScope",
+      "type": "object"
+    },
+    "DatabaseRowSnapshot": {
+      "properties": {
+        "columns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Columns",
+          "type": "array"
+        },
+        "rows": {
+          "items": {
+            "items": {},
+            "type": "array"
+          },
+          "title": "Rows",
+          "type": "array"
+        },
+        "scope": {
+          "$ref": "#/$defs/DatabaseRowScope"
+        }
+      },
+      "required": [
+        "scope",
+        "columns"
+      ],
+      "title": "DatabaseRowSnapshot",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "captured_at": {
+      "title": "Captured At",
+      "type": "string"
+    },
+    "rows": {
+      "items": {
+        "$ref": "#/$defs/DatabaseRowSnapshot"
+      },
+      "title": "Rows",
+      "type": "array"
+    }
+  },
+  "title": "TransactionSnapshot",
+  "type": "object"
+}
