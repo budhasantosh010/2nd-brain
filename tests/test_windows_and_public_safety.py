@@ -27,7 +27,11 @@ def test_required_windows_scripts_exist_and_preserve_vault() -> None:
 
 
 def test_windows_scripts_parse_in_powershell() -> None:
-    powershell = shutil.which("powershell.exe") or shutil.which("pwsh")
+    powershell = (
+        shutil.which("powershell.exe") or shutil.which("pwsh")
+        if sys.platform == "win32"
+        else shutil.which("pwsh")
+    )
     if powershell is None:
         pytest.skip("PowerShell is unavailable on this CI runner")
     root = Path(__file__).resolve().parents[1]

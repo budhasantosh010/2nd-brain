@@ -550,6 +550,7 @@ source = { editable = "." }
 dependencies = [
     { name = "beautifulsoup4" },
     { name = "charset-normalizer" },
+    { name = "fastembed" },
     { name = "mcp" },
     { name = "openpyxl" },
     { name = "pillow" },
@@ -593,6 +594,7 @@ requires-dist = [
     { name = "anthropic", marker = "extra == 'anthropic'", specifier = ">=0.34" },
     { name = "beautifulsoup4", specifier = ">=4.12" },
     { name = "charset-normalizer", specifier = ">=3.3" },
+    { name = "fastembed", specifier = ">=0.7,<0.8" },
     { name = "fastembed", marker = "extra == 'semantic'", specifier = ">=0.7,<0.8" },
     { name = "google-genai", marker = "extra == 'gemini'", specifier = ">=1.0" },
     { name = "jsonschema", marker = "extra == 'dev'", specifier = ">=4.23" },

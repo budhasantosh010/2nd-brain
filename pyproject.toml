@@ -13,6 +13,7 @@ authors = [{name = "Santosh Budha"}]
 dependencies = [
   "beautifulsoup4>=4.12",
   "charset-normalizer>=3.3",
+  "fastembed>=0.7,<0.8",
   "pillow>=10.4",
   "pydantic>=2.8",
   "pypdf>=5.0",
