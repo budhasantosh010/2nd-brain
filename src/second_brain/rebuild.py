@@ -13,6 +13,7 @@ import frontmatter
 
 from second_brain.config import load_config
 from second_brain.embeddings.factory import create_embedding_provider
+from second_brain.migration import migrate_phase2_runtime
 from second_brain.models import (
     ClaimRecord,
     ConceptRecord,
@@ -43,6 +44,10 @@ class RebuildService:
         self.config = load_config(self.paths)
 
     def rebuild(self) -> dict[str, int]:
+        # Capture legacy Phase 1/2 generated DB resolution truth into durable Phase 2.5 ledgers
+        # before deleting/rebuilding disposable SQLite state.
+        if self.paths.db.exists():
+            migrate_phase2_runtime(self.paths, SQLiteStore(self.paths.db))
         self._archive_generated_db()
         store = SQLiteStore(self.paths.db)
         store.initialize()

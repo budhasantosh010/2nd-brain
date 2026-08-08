@@ -24,6 +24,7 @@ from second_brain.maintenance.monthly import MonthlyMaintenance
 from second_brain.maintenance.nightly import NightlyMaintenance
 from second_brain.maintenance.weekly import WeeklyMaintenance
 from second_brain.mcp.server import serve_stdio
+from second_brain.migration import migrate_phase2_runtime
 from second_brain.models import ProcessingState
 from second_brain.observability.status import brain_status
 from second_brain.paths import BrainPaths
@@ -33,6 +34,7 @@ from second_brain.review.service import ReviewService
 from second_brain.storage.sqlite import SQLiteStore
 from second_brain.transactions.manager import TransactionManager
 from second_brain.validation import validate_vault
+from second_brain.verification.consistency import ConsistencyVerifier
 from second_brain.verification.service import VerificationService
 
 app = typer.Typer(
@@ -238,6 +240,7 @@ def verify_command() -> None:
     report = validate_vault(paths.vault)
     findings = verify_source_integrity(store) if paths.db.exists() else []
     corrupt = [item for item in findings if not item.ok]
+    consistency = ConsistencyVerifier(paths, store).verify() if paths.db.exists() else None
     _json(
         {
             "vault_validation": {"ok": report.ok, "checked": report.checked, "errors": report.errors},
@@ -246,10 +249,26 @@ def verify_command() -> None:
                 "ok": len(corrupt) == 0,
                 "findings": [asdict(item) for item in corrupt],
             },
+            "canonical_consistency": (
+                {
+                    "ok": consistency.ok,
+                    "canonical_errors": [asdict(item) for item in consistency.canonical_errors],
+                    "generated_warnings": [asdict(item) for item in consistency.generated_warnings],
+                }
+                if consistency is not None
+                else {"ok": True, "canonical_errors": [], "generated_warnings": []}
+            ),
         }
     )
-    if not report.ok or corrupt:
+    if not report.ok or corrupt or (consistency is not None and not consistency.ok):
         raise typer.Exit(code=1)
+
+
+@app.command("migrate")
+def migrate_command() -> None:
+    """Idempotently upgrade older local runtime state into current durable Phase 2.5 ledgers."""
+    paths, store = _runtime()
+    _json(migrate_phase2_runtime(paths, store).to_dict())
 
 
 @app.command("rebuild")
