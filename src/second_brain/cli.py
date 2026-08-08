@@ -9,6 +9,7 @@ from typing import Annotated
 
 import typer
 
+from second_brain.backup import create_backup, verify_backup
 from second_brain.bootstrap import initialize_vault
 from second_brain.config import load_config
 from second_brain.doctor import doctor
@@ -44,12 +45,19 @@ mcp_app = typer.Typer(help="Expose policy-scoped brain tools over local MCP.", n
 source_app = typer.Typer(help="Inspect and change per-source egress permissions.", no_args_is_help=True)
 trust_app = typer.Typer(help="Manage trusted local ingestion paths.", no_args_is_help=True)
 provider_app = typer.Typer(help="Inspect configured AI-provider readiness.", no_args_is_help=True)
+backup_app = typer.Typer(
+    help="Create and verify durable brain backups.",
+    invoke_without_command=True,
+    no_args_is_help=False,
+)
+backup_app = typer.Typer(help="Create and verify durable brain backups.", no_args_is_help=True)
 app.add_typer(review_app, name="review")
 app.add_typer(maintain_app, name="maintain")
 app.add_typer(mcp_app, name="mcp")
 app.add_typer(source_app, name="source")
 app.add_typer(trust_app, name="trust")
 app.add_typer(provider_app, name="provider")
+app.add_typer(backup_app, name="backup")
 
 
 def _runtime() -> tuple[BrainPaths, SQLiteStore]:
@@ -296,6 +304,22 @@ def trust_remove(path: Annotated[Path, typer.Argument()]) -> None:
 def provider_test() -> None:
     """Report provider/model/SDK/credential/health and a harmless structured smoke result."""
     _json(provider_smoke(load_config(BrainPaths.discover())).to_dict())
+
+
+@backup_app.command("create")
+def backup_create(destination: Annotated[Path | None, typer.Argument()] = None) -> None:
+    """Create a durable, hashed backup that excludes generated indexes/runtime state."""
+    path = create_backup(BrainPaths.discover(), destination)
+    _json({"backup": str(path), "verification": verify_backup(path).ok})
+
+
+@backup_app.command("verify")
+def backup_verify(path: Annotated[Path, typer.Argument()]) -> None:
+    """Verify manifest membership and SHA256 hashes for a backup archive."""
+    result = verify_backup(path)
+    _json({"ok": result.ok, "checked": result.checked, "errors": result.errors})
+    if not result.ok:
+        raise typer.Exit(code=1)
 
 
 @mcp_app.command("serve")
