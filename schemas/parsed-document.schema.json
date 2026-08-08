@@ -1,0 +1,75 @@
+{
+  "$defs": {
+    "ParsedSegment": {
+      "properties": {
+        "locator": {
+          "title": "Locator",
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        },
+        "position": {
+          "title": "Position",
+          "type": "integer"
+        },
+        "segment_id": {
+          "title": "Segment Id",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "segment_id",
+        "text",
+        "locator",
+        "position"
+      ],
+      "title": "ParsedSegment",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "metadata": {
+      "additionalProperties": true,
+      "title": "Metadata",
+      "type": "object"
+    },
+    "mime_type": {
+      "title": "Mime Type",
+      "type": "string"
+    },
+    "segments": {
+      "items": {
+        "$ref": "#/$defs/ParsedSegment"
+      },
+      "title": "Segments",
+      "type": "array"
+    },
+    "source_id": {
+      "title": "Source Id",
+      "type": "string"
+    },
+    "text": {
+      "title": "Text",
+      "type": "string"
+    },
+    "title": {
+      "title": "Title",
+      "type": "string"
+    }
+  },
+  "required": [
+    "source_id",
+    "title",
+    "mime_type",
+    "text"
+  ],
+  "title": "ParsedDocument",
+  "type": "object"
+}

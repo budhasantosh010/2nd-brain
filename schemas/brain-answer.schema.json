@@ -1,0 +1,123 @@
+{
+  "$defs": {
+    "EvidenceItem": {
+      "properties": {
+        "authority": {
+          "default": "unknown",
+          "title": "Authority",
+          "type": "string"
+        },
+        "excerpt": {
+          "title": "Excerpt",
+          "type": "string"
+        },
+        "locator": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Locator"
+        },
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "verification_state": {
+          "$ref": "#/$defs/VerificationState",
+          "default": "supported"
+        }
+      },
+      "required": [
+        "source_id",
+        "title",
+        "excerpt"
+      ],
+      "title": "EvidenceItem",
+      "type": "object"
+    },
+    "QueryType": {
+      "enum": [
+        "EXACT",
+        "CURRENT_STATE",
+        "HISTORICAL",
+        "CONCEPTUAL",
+        "CROSS_PROJECT",
+        "DECISION",
+        "SOURCE_LOOKUP"
+      ],
+      "title": "QueryType",
+      "type": "string"
+    },
+    "VerificationState": {
+      "enum": [
+        "verified",
+        "supported",
+        "provisional",
+        "uncertain",
+        "contradicted",
+        "stale"
+      ],
+      "title": "VerificationState",
+      "type": "string"
+    }
+  },
+  "properties": {
+    "answer": {
+      "title": "Answer",
+      "type": "string"
+    },
+    "citations": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Citations",
+      "type": "array"
+    },
+    "conflicts": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Conflicts",
+      "type": "array"
+    },
+    "evidence": {
+      "items": {
+        "$ref": "#/$defs/EvidenceItem"
+      },
+      "title": "Evidence",
+      "type": "array"
+    },
+    "missing_information": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Missing Information",
+      "type": "array"
+    },
+    "query_type": {
+      "$ref": "#/$defs/QueryType",
+      "default": "CONCEPTUAL"
+    },
+    "uncertainty": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Uncertainty",
+      "type": "array"
+    }
+  },
+  "required": [
+    "answer"
+  ],
+  "title": "BrainAnswer",
+  "type": "object"
+}
