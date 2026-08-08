@@ -306,6 +306,14 @@ def provider_test() -> None:
     _json(provider_smoke(load_config(BrainPaths.discover())).to_dict())
 
 
+@backup_app.callback()
+def backup_default(ctx: typer.Context) -> None:
+    """Create a backup when invoked as `second-brain backup` with no subcommand."""
+    if ctx.invoked_subcommand is None:
+        path = create_backup(BrainPaths.discover())
+        _json({"backup": str(path), "verification": verify_backup(path).ok})
+
+
 @backup_app.command("create")
 def backup_create(destination: Annotated[Path | None, typer.Argument()] = None) -> None:
     """Create a durable, hashed backup that excludes generated indexes/runtime state."""
