@@ -21,12 +21,12 @@ secrets*.json
 *.lancedb/
 *.chroma/
 *.faiss
-embeddings/
-indexes/
+/embeddings/
+/indexes/
 
 # Runtime state
-logs/
-cache/
+/logs/
+/cache/
 .brain/
 **/.brain/
 *.log
