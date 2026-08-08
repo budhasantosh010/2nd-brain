@@ -5,6 +5,7 @@ import json
 import pytest
 
 from second_brain.exceptions import TransactionError
+from second_brain.locks import ProcessLockManager
 from second_brain.models import PlannedWrite
 from second_brain.paths import BrainPaths
 from second_brain.review.service import ReviewService
@@ -104,17 +105,13 @@ def test_database_failure_rolls_back_files_and_database_transaction(
 def test_writer_lock_prevents_concurrent_canonical_mutation(
     isolated_brain: BrainPaths, store: SQLiteStore
 ) -> None:
-    lock = isolated_brain.locks / "writer.lock"
-    lock.write_text("synthetic lock", encoding="utf-8")
+    locks = ProcessLockManager(isolated_brain.locks, isolated_brain.brain / "ledgers")
     plan = build_plan(
         "concurrent write",
         [PlannedWrite(path="03 Knowledge/Concepts/blocked.md", content="blocked\n")],
     )
-    try:
-        with pytest.raises(TransactionError, match="writer lock"):
-            TransactionManager(isolated_brain, store).apply(plan)
-    finally:
-        lock.unlink(missing_ok=True)
+    with locks.acquire("writer"), pytest.raises(TransactionError, match="live pid"):
+        TransactionManager(isolated_brain, store).apply(plan)
     assert not (isolated_brain.vault / "03 Knowledge" / "Concepts" / "blocked.md").exists()
 
 

@@ -8,13 +8,14 @@ import os
 import shutil
 import sqlite3
 from collections.abc import Callable
-from contextlib import contextmanager, suppress
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 from second_brain.exceptions import TransactionError
+from second_brain.locks import ProcessLockManager
 from second_brain.models import OperationPlan, PlannedWrite
 from second_brain.paths import BrainPaths
 from second_brain.storage.sqlite import SQLiteStore
@@ -47,22 +48,15 @@ class TransactionManager:
         self.store = store or SQLiteStore(self.paths.db)
         self.paths.ensure_runtime_dirs()
         self.store.initialize()
+        self.lock_manager = ProcessLockManager(self.paths.locks, self.paths.brain / "ledgers")
 
     @contextmanager
-    def _writer_lock(self):  # type: ignore[no-untyped-def]
-        lock_path = self.paths.locks / "writer.lock"
+    def _writer_lock(self, operation_id: str | None = None):  # type: ignore[no-untyped-def]
         try:
-            fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError as exc:
-            raise TransactionError(f"Canonical writer lock is already held: {lock_path}") from exc
-        try:
-            os.write(fd, f"pid={os.getpid()}\n".encode())
-            os.close(fd)
-            yield
-        finally:
-            with suppress(OSError):
-                os.close(fd)
-            lock_path.unlink(missing_ok=True)
+            with self.lock_manager.acquire("writer", operation_id=operation_id):
+                yield
+        except RuntimeError as exc:
+            raise TransactionError(str(exc)) from exc
 
     def apply(
         self,
@@ -301,7 +295,7 @@ class TransactionManager:
             if not isinstance(entries, list):
                 continue
             _db_plan, database_before, _database_after = self._database_manifest(manifest)
-            with self._writer_lock():
+            with self._writer_lock(operation_id):
                 self._restore_from_entries(entries, self.paths.history / operation_id)
                 if database_before is not None:
                     with self.store.transaction() as conn:
