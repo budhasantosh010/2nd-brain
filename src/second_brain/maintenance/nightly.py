@@ -137,7 +137,7 @@ class NightlyMaintenance:
                 "SELECT * FROM conflicts WHERE status = 'open' ORDER BY created_at DESC"
             ).fetchall()
             questions = conn.execute(
-                "SELECT * FROM questions WHERE status = 'open' ORDER BY created_at DESC"
+                "SELECT * FROM questions WHERE status IN ('open','candidate_evidence') ORDER BY created_at DESC"
             ).fetchall()
         metrics = collect_metrics(self.store)
 
@@ -265,7 +265,7 @@ class NightlyMaintenance:
                 """
             ).fetchall()
             loops = conn.execute("SELECT * FROM open_loops WHERE status = 'open' ORDER BY created_at DESC LIMIT 20").fetchall()
-            questions = conn.execute("SELECT * FROM questions WHERE status = 'open' ORDER BY created_at DESC LIMIT 10").fetchall()
+            questions = conn.execute("SELECT * FROM questions WHERE status IN ('open','candidate_evidence') ORDER BY created_at DESC LIMIT 10").fetchall()
             reviews = conn.execute("SELECT * FROM review_items WHERE status = 'pending' ORDER BY created_at LIMIT 10").fetchall()
             concepts = conn.execute("SELECT * FROM concepts ORDER BY updated_at DESC LIMIT 10").fetchall()
         lines = [

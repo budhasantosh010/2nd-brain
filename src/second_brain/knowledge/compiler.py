@@ -17,6 +17,7 @@ from second_brain.config import BrainConfig, load_config
 from second_brain.embeddings.factory import create_embedding_provider
 from second_brain.knowledge.contradiction import ConflictKind, assess_claim_pair, lexical_overlap
 from second_brain.knowledge.extractor import KnowledgeExtractor
+from second_brain.knowledge.gaps import GapResolver
 from second_brain.knowledge.linker import derived_from, related_to, supports
 from second_brain.knowledge.matcher import ConceptMatcher, MatchAction
 from second_brain.models import (
@@ -672,6 +673,7 @@ class KnowledgeCompiler:
         result.questions = len(extraction.questions)
         result.state = ProcessingState.NEEDS_REVIEW if result.review_items else ProcessingState.COMPLETE
         result.message = "Validated knowledge compiled; risky meaning changes were staged." if result.review_items else "Validated knowledge compiled and indexed."
+        GapResolver(self.paths, self.store).recheck(source_ids=[source_id])
         return result
 
     def _cloud_egress_allowed(self, row: sqlite3.Row) -> bool:

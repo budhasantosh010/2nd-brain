@@ -174,7 +174,7 @@ class VerificationService:
     def refresh_unanswered_dashboard(self) -> None:
         with self.store.connect() as conn:
             rows = conn.execute(
-                "SELECT * FROM questions WHERE status = 'open' ORDER BY created_at DESC"
+                "SELECT * FROM questions WHERE status IN ('open','candidate_evidence') ORDER BY created_at DESC"
             ).fetchall()
         lines = [
             "# Unanswered Questions",
