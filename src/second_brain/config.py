@@ -112,4 +112,10 @@ def load_config(paths: BrainPaths | None = None) -> BrainConfig:
     env_model = os.getenv("SECOND_BRAIN_AI_MODEL")
     if env_model:
         merged.setdefault("ai", {})["model"] = env_model
+    embedding_provider = os.getenv("SECOND_BRAIN_EMBEDDING_PROVIDER")
+    if embedding_provider:
+        merged.setdefault("embeddings", {})["provider"] = embedding_provider
+    embedding_model = os.getenv("SECOND_BRAIN_EMBEDDING_MODEL")
+    if embedding_model:
+        merged.setdefault("embeddings", {})["model"] = embedding_model
     return BrainConfig.model_validate(merged)

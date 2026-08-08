@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import sqlite3
 
+import yaml
+
 from second_brain.migration import migrate_phase2_runtime
 from second_brain.paths import BrainPaths
 from second_brain.storage.durable import read_jsonl, read_resolution
@@ -21,6 +23,15 @@ def test_phase2_runtime_migrates_to_phase25_without_loss_and_is_idempotent(
     project_id = "PRJ-migration-fixture"
     question_id = "QUE-migration-fixture"
     now = "2026-08-08T00:00:00+00:00"
+    config_path = isolated_brain.brain / "config.yaml"
+    config_payload = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    assert isinstance(config_payload, dict)
+    embeddings = config_payload.setdefault("embeddings", {})
+    assert isinstance(embeddings, dict)
+    embeddings["provider"] = "hashing"
+    embeddings["model"] = None
+    embeddings["revision"] = "fastembed-model-registry"
+    config_path.write_text(yaml.safe_dump(config_payload, sort_keys=False), encoding="utf-8")
     raw = isolated_brain.raw / "Documents" / source_id / "legacy.txt"
     raw.parent.mkdir(parents=True, exist_ok=True)
     raw.write_text("legacy raw evidence", encoding="utf-8")
@@ -143,6 +154,9 @@ def test_phase2_runtime_migrates_to_phase25_without_loss_and_is_idempotent(
     assert first.resolution_ledgers_created == 1
     assert first.project_events_created == 1
     assert first.gap_events_created == 1
+    migrated_config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    assert migrated_config["embeddings"]["provider"] == "learned"
+    assert migrated_config["embeddings"]["model"] == "BAAI/bge-small-en-v1.5"
     with store.connect() as check:
         assert check.execute("SELECT title FROM concepts WHERE id=?", (concept_id,)).fetchone()[0] == "Legacy Canonical"
         assert check.execute("SELECT current_state FROM project_states WHERE project_id=? AND active=1", (project_id,)).fetchone()[0] == "Legacy state"

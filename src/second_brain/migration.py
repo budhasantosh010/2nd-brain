@@ -6,6 +6,8 @@ import json
 from dataclasses import asdict, dataclass
 from typing import Any
 
+import yaml
+
 from second_brain.models import KnowledgeExtraction
 from second_brain.paths import BrainPaths
 from second_brain.storage.durable import (
@@ -50,6 +52,35 @@ def _contains_source(row: Any, source_id: str) -> bool:
     return isinstance(values, list) and source_id in {str(value) for value in values}
 
 
+def _migrate_legacy_embedding_config(paths: BrainPaths) -> None:
+    """Upgrade only the accepted Phase 1/2 hashing-default signature to learned semantics."""
+    path = paths.brain / "config.yaml"
+    if not path.exists():
+        return
+    try:
+        payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return
+    if not isinstance(payload, dict):
+        return
+    embeddings = payload.get("embeddings")
+    if not isinstance(embeddings, dict):
+        return
+    provider = str(embeddings.get("provider") or "").strip().lower()
+    model = embeddings.get("model")
+    revision = str(embeddings.get("revision") or "fastembed-model-registry")
+    if provider not in {"hashing", "local", "fuzzy", "local-fuzzy"} or model not in {None, ""}:
+        return
+    if revision != "fastembed-model-registry":
+        return
+    embeddings["provider"] = "learned"
+    embeddings["model"] = "BAAI/bge-small-en-v1.5"
+    path.write_text(
+        yaml.safe_dump(payload, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+
+
 def migrate_phase2_runtime(
     paths: BrainPaths | None = None,
     store: SQLiteStore | None = None,
@@ -61,6 +92,7 @@ def migrate_phase2_runtime(
     """
 
     paths = paths or BrainPaths.discover()
+    _migrate_legacy_embedding_config(paths)
     store = store or SQLiteStore(paths.db)
     schema_before = store.schema_version()
     store.initialize()

@@ -48,6 +48,7 @@ class RebuildService:
         # before deleting/rebuilding disposable SQLite state.
         if self.paths.db.exists():
             migrate_phase2_runtime(self.paths, SQLiteStore(self.paths.db))
+            self.config = load_config(self.paths)
         self._archive_generated_db()
         store = SQLiteStore(self.paths.db)
         store.initialize()

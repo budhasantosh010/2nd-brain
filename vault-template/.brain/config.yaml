@@ -12,8 +12,8 @@ ai:
   allow_cloud_ai: false
 
 embeddings:
-  provider: hashing
-  model: null
+  provider: learned
+  model: BAAI/bge-small-en-v1.5
   revision: fastembed-model-registry
   dimensions: 384
   schema_version: embedding-v2
