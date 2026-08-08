@@ -10,6 +10,7 @@ from second_brain.paths import BrainPaths
 from second_brain.review.service import ReviewService
 from second_brain.storage.markdown import file_sha256
 from second_brain.storage.sqlite import SQLiteStore
+from second_brain.transactions.db_mutations import DatabaseMutationPlan, DatabaseRowScope
 from second_brain.transactions.manager import TransactionManager
 from second_brain.transactions.plan import build_plan
 
@@ -82,7 +83,19 @@ def test_database_failure_rolls_back_files_and_database_transaction(
         raise RuntimeError("synthetic db failure")
 
     with pytest.raises(TransactionError, match="rolled back"):
-        manager.apply(plan, db_action=db_action)
+        manager.apply(
+            plan,
+            db_action=db_action,
+            db_plan=DatabaseMutationPlan(
+                scopes=[
+                    DatabaseRowScope(
+                        table="questions",
+                        where_sql="id = ?",
+                        params=["QUE-rollback"],
+                    )
+                ]
+            ),
+        )
     assert target.read_text(encoding="utf-8") == "before\n"
     with store.connect() as conn:
         assert conn.execute("SELECT COUNT(*) FROM questions WHERE id='QUE-rollback'").fetchone()[0] == 0

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,7 @@ from second_brain.storage.markdown import file_sha256
 from second_brain.storage.repository import BrainRepository
 from second_brain.storage.sqlite import SQLiteStore
 from second_brain.storage.vector import VectorStore
+from second_brain.transactions.db_mutations import DatabaseMutationPlan, DatabaseRowScope
 from second_brain.transactions.manager import TransactionManager
 from second_brain.transactions.plan import build_plan
 
@@ -100,7 +102,21 @@ class ReviewService:
                 ),
             )
 
-        self.transactions.apply(stage_plan, db_action=db_action)
+        self.transactions.apply(
+            stage_plan,
+            db_action=db_action,
+            db_plan=DatabaseMutationPlan(
+                scopes=[
+                    DatabaseRowScope(
+                        table="review_items",
+                        where_sql="review_id = ?",
+                        params=[item.review_id],
+                        label=f"Review item {item.review_id}",
+                    )
+                ],
+                description="Stage review item",
+            ),
+        )
         self.refresh_dashboard()
         return item
 
@@ -171,9 +187,13 @@ class ReviewService:
                         "UPDATE projects SET updated_at = ? WHERE id = ?",
                         (datetime.now(UTC).isoformat(), project_id),
                     )
+            self._refresh_indexes_db(conn, plan)
 
-        operation_id = self.transactions.apply(plan, db_action=db_action)
-        self._refresh_indexes(plan)
+        operation_id = self.transactions.apply(
+            plan,
+            db_action=db_action,
+            db_plan=self._proposal_db_plan(plan),
+        )
         item.status = "applied"
         item.decision = "approved"
         self._persist_item_and_views(item)
@@ -196,14 +216,74 @@ class ReviewService:
         item.decision = "approved then rolled back"
         self._persist_item_and_views(item)
 
-    def _refresh_indexes(self, plan: OperationPlan) -> None:
+    def _proposal_db_plan(self, plan: OperationPlan) -> DatabaseMutationPlan:
+        scopes: list[DatabaseRowScope] = []
+        fts_object_ids: list[str] = []
+        vector_object_ids: list[str] = []
+
+        concept_payload = plan.metadata.get("concept_update")
+        if isinstance(concept_payload, dict):
+            concept_id = str(concept_payload.get("id", ""))
+            if concept_id:
+                scopes.extend(
+                    [
+                        DatabaseRowScope(
+                            table="concepts",
+                            where_sql="id = ?",
+                            params=[concept_id],
+                            label=f"Concept {concept_id}",
+                        ),
+                        DatabaseRowScope(
+                            table="relationships",
+                            where_sql="from_id = ? OR to_id = ?",
+                            params=[concept_id, concept_id],
+                            label=f"Relationships touching {concept_id}",
+                        ),
+                    ]
+                )
+                fts_object_ids.append(concept_id)
+                vector_object_ids.append(concept_id)
+
+        state_payload = plan.metadata.get("project_state_update")
+        if isinstance(state_payload, dict):
+            project_id = str(state_payload.get("project_id", ""))
+            if project_id:
+                scopes.extend(
+                    [
+                        DatabaseRowScope(
+                            table="projects",
+                            where_sql="id = ?",
+                            params=[project_id],
+                            label=f"Project {project_id}",
+                        ),
+                        DatabaseRowScope(
+                            table="project_states",
+                            where_sql="project_id = ?",
+                            params=[project_id],
+                            label=f"Project state history {project_id}",
+                        ),
+                    ]
+                )
+                state_id = f"PST-{project_id[4:]}"
+                fts_object_ids.append(state_id)
+                vector_object_ids.append(state_id)
+
+        return DatabaseMutationPlan(
+            scopes=scopes,
+            fts_object_ids=fts_object_ids,
+            vector_object_ids=vector_object_ids,
+            description=f"Reversible review approval: {plan.description}",
+        )
+
+    def _refresh_indexes_db(self, conn: sqlite3.Connection, plan: OperationPlan) -> None:
         concept_payload = plan.metadata.get("concept_update")
         note_path = plan.metadata.get("note_path")
         if isinstance(concept_payload, dict) and isinstance(note_path, str):
             concept = ConceptRecord.model_validate(concept_payload)
             text = f"{concept.title}\n{concept.summary}"
             source_id = concept.source_ids[0] if concept.source_ids else None
-            self.store.index_text(
+            self.store.index_text_in_connection(
+                conn,
                 object_id=concept.id,
                 object_type="concept",
                 title=concept.title,
@@ -211,7 +291,8 @@ class ReviewService:
                 source_id=source_id,
                 locator=note_path,
             )
-            self.vectors.upsert(
+            self.vectors.upsert_in_connection(
+                conn,
                 object_id=concept.id,
                 object_type="concept",
                 title=concept.title,
@@ -231,10 +312,9 @@ class ReviewService:
         project_id = str(state_payload.get("project_id", ""))
         if not project_id:
             return
-        with self.store.connect() as conn:
-            project = conn.execute(
-                "SELECT title, project_path FROM projects WHERE id = ?", (project_id,)
-            ).fetchone()
+        project = conn.execute(
+            "SELECT title, project_path FROM projects WHERE id = ?", (project_id,)
+        ).fetchone()
         if project is None:
             return
         title = str(project["title"])
@@ -249,7 +329,8 @@ class ReviewService:
         source_id = next((value for value in evidence_values if value.startswith("SRC-")), None)
         state_id = f"PST-{project_id[4:]}"
         locator = f"{project['project_path']}/STATE.md"
-        self.store.index_text(
+        self.store.index_text_in_connection(
+            conn,
             object_id=state_id,
             object_type="project-state",
             title=f"{title} — Current State",
@@ -257,7 +338,8 @@ class ReviewService:
             source_id=source_id,
             locator=locator,
         )
-        self.vectors.upsert(
+        self.vectors.upsert_in_connection(
+            conn,
             object_id=state_id,
             object_type="project-state",
             title=f"{title} — Current State",
@@ -322,7 +404,21 @@ class ReviewService:
                 ),
             )
 
-        self.transactions.apply(plan, db_action=db_action)
+        self.transactions.apply(
+            plan,
+            db_action=db_action,
+            db_plan=DatabaseMutationPlan(
+                scopes=[
+                    DatabaseRowScope(
+                        table="review_items",
+                        where_sql="review_id = ?",
+                        params=[item.review_id],
+                        label=f"Review item {item.review_id}",
+                    )
+                ],
+                description=f"Update review item {item.review_id}",
+            ),
+        )
 
     def _load_proposal(self, operation_id: str) -> OperationPlan:
         path = self.paths.transactions / operation_id / "proposal.json"

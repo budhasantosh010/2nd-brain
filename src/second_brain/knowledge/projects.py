@@ -18,6 +18,7 @@ from second_brain.review.service import ReviewService
 from second_brain.storage.markdown import file_sha256
 from second_brain.storage.sqlite import SQLiteStore
 from second_brain.storage.vector import VectorStore
+from second_brain.transactions.db_mutations import DatabaseMutationPlan, DatabaseRowScope
 from second_brain.transactions.manager import TransactionManager
 from second_brain.transactions.plan import build_plan
 
@@ -119,9 +120,13 @@ class ProjectService:
                     now.isoformat(),
                 ),
             )
+            self._index_project_db(conn, project_id, spec.title, folder, spec.goal, state)
 
-        self.transactions.apply(plan, db_action=db_action)
-        self._index_project(project_id, spec.title, folder, spec.goal, state)
+        self.transactions.apply(
+            plan,
+            db_action=db_action,
+            db_plan=self._project_db_plan(project_id),
+        )
         return project_id
 
     def update_state(
@@ -182,9 +187,13 @@ class ProjectService:
 
         def db_action(conn: sqlite3.Connection) -> None:
             self._write_state_db(conn, project_id, state, now)
+            self._index_project_db(conn, project_id, title, folder, spec.goal, state)
 
-        operation_id = self.transactions.apply(plan, db_action=db_action)
-        self._index_project(project_id, title, folder, spec.goal, state)
+        operation_id = self.transactions.apply(
+            plan,
+            db_action=db_action,
+            db_plan=self._project_db_plan(project_id),
+        )
         return operation_id
 
     def create_handoff(self, project_id: str) -> str:
@@ -265,8 +274,32 @@ class ProjectService:
             "UPDATE projects SET updated_at = ? WHERE id = ?", (now.isoformat(), project_id)
         )
 
-    def _index_project(
+    @staticmethod
+    def _project_db_plan(project_id: str) -> DatabaseMutationPlan:
+        state_id = f"PST-{project_id[4:]}"
+        return DatabaseMutationPlan(
+            scopes=[
+                DatabaseRowScope(
+                    table="projects",
+                    where_sql="id = ?",
+                    params=[project_id],
+                    label=f"Project {project_id}",
+                ),
+                DatabaseRowScope(
+                    table="project_states",
+                    where_sql="project_id = ?",
+                    params=[project_id],
+                    label=f"Project state history {project_id}",
+                ),
+            ],
+            fts_object_ids=[project_id, state_id],
+            vector_object_ids=[project_id, state_id],
+            description=f"Project logical state {project_id}",
+        )
+
+    def _index_project_db(
         self,
+        conn: sqlite3.Connection,
         project_id: str,
         title: str,
         folder: str,
@@ -282,7 +315,8 @@ class ProjectService:
             f"Blockers: {'; '.join(state.blockers)}\n"
             f"Open questions: {'; '.join(state.open_questions)}"
         )
-        self.store.index_text(
+        self.store.index_text_in_connection(
+            conn,
             object_id=project_id,
             object_type="project",
             title=title,
@@ -294,7 +328,8 @@ class ProjectService:
             (value for value in state.latest_verified_evidence if value.startswith("SRC-")),
             None,
         )
-        self.store.index_text(
+        self.store.index_text_in_connection(
+            conn,
             object_id=state_id,
             object_type="project-state",
             title=f"{title} — Current State",
@@ -302,14 +337,16 @@ class ProjectService:
             source_id=evidence_source,
             locator=f"{folder}/STATE.md",
         )
-        self.vectors.upsert(
+        self.vectors.upsert_in_connection(
+            conn,
             object_id=project_id,
             object_type="project",
             title=title,
             text=project_text,
             metadata={"project_id": project_id, "locator": f"{folder}/PROJECT.md"},
         )
-        self.vectors.upsert(
+        self.vectors.upsert_in_connection(
+            conn,
             object_id=state_id,
             object_type="project-state",
             title=f"{title} — Current State",

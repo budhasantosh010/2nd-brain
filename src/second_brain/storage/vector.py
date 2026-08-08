@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import UTC, datetime
 from typing import Any
 
@@ -27,33 +28,54 @@ class VectorStore:
         source_id: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> None:
-        vector = self.embedding.embed(text)
         with self.store.transaction() as conn:
-            conn.execute(
-                """
-                INSERT INTO vector_items(
-                    object_id, object_type, source_id, title, text, vector_json, updated_at, metadata_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(object_id) DO UPDATE SET
-                    object_type=excluded.object_type,
-                    source_id=excluded.source_id,
-                    title=excluded.title,
-                    text=excluded.text,
-                    vector_json=excluded.vector_json,
-                    updated_at=excluded.updated_at,
-                    metadata_json=excluded.metadata_json
-                """,
-                (
-                    object_id,
-                    object_type,
-                    source_id,
-                    title,
-                    text,
-                    json.dumps(vector),
-                    datetime.now(UTC).isoformat(),
-                    json.dumps(metadata or {}, sort_keys=True),
-                ),
+            self.upsert_in_connection(
+                conn,
+                object_id=object_id,
+                object_type=object_type,
+                title=title,
+                text=text,
+                source_id=source_id,
+                metadata=metadata,
             )
+
+    def upsert_in_connection(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        object_id: str,
+        object_type: str,
+        title: str,
+        text: str,
+        source_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        vector = self.embedding.embed(text)
+        conn.execute(
+            """
+            INSERT INTO vector_items(
+                object_id, object_type, source_id, title, text, vector_json, updated_at, metadata_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(object_id) DO UPDATE SET
+                object_type=excluded.object_type,
+                source_id=excluded.source_id,
+                title=excluded.title,
+                text=excluded.text,
+                vector_json=excluded.vector_json,
+                updated_at=excluded.updated_at,
+                metadata_json=excluded.metadata_json
+            """,
+            (
+                object_id,
+                object_type,
+                source_id,
+                title,
+                text,
+                json.dumps(vector),
+                datetime.now(UTC).isoformat(),
+                json.dumps(metadata or {}, sort_keys=True),
+            ),
+        )
 
     def search(
         self,

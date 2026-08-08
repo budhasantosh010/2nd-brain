@@ -39,6 +39,7 @@ from second_brain.storage.markdown import file_sha256
 from second_brain.storage.repository import BrainRepository
 from second_brain.storage.sqlite import SQLiteStore
 from second_brain.storage.vector import VectorStore
+from second_brain.transactions.db_mutations import DatabaseMutationPlan, DatabaseRowScope
 from second_brain.transactions.manager import TransactionManager
 from second_brain.transactions.plan import build_plan
 
@@ -276,16 +277,161 @@ class KnowledgeCompiler:
         main_plan = build_plan(
             f"Compile validated knowledge from {source_id}", writes, permission_level=1
         )
+        open_loop_rows = [(f"LOP-{uuid4()}", loop) for loop in extraction.open_loops]
+        project_candidate_rows = [
+            (f"PCD-{uuid4()}", candidate) for candidate in extraction.project_candidates
+        ]
+        question_rows = [(f"QUE-{uuid4()}", question) for question in extraction.questions]
+
+        scopes: list[DatabaseRowScope] = [
+            DatabaseRowScope(
+                table="sources",
+                where_sql="id = ?",
+                params=[source_id],
+                label=f"Compiled source {source_id}",
+            )
+        ]
+        for concept, _note_path in db_concepts:
+            scopes.append(DatabaseRowScope(table="concepts", where_sql="id = ?", params=[concept.id]))
+        for claim, _claim_note_path in db_claims:
+            scopes.append(DatabaseRowScope(table="claims", where_sql="id = ?", params=[claim.id]))
+        for entity, _entity_note_path in db_entities:
+            scopes.append(DatabaseRowScope(table="entities", where_sql="id = ?", params=[entity.id]))
+        decision_scope_ids: set[str] = set()
+        for decision in db_decisions:
+            decision_scope_ids.add(decision.id)
+            if decision.supersedes:
+                decision_scope_ids.add(decision.supersedes)
+        for decision_id in sorted(decision_scope_ids):
+            scopes.append(DatabaseRowScope(table="decisions", where_sql="id = ?", params=[decision_id]))
+        for relation in relationships:
+            scopes.append(DatabaseRowScope(table="relationships", where_sql="id = ?", params=[relation.id]))
+        for conflict_id, _left_id, _right_id, _explanation in conflicts_to_insert:
+            scopes.append(DatabaseRowScope(table="conflicts", where_sql="id = ?", params=[conflict_id]))
+        for loop_id, _loop in open_loop_rows:
+            scopes.append(DatabaseRowScope(table="open_loops", where_sql="id = ?", params=[loop_id]))
+        for candidate_id, _candidate in project_candidate_rows:
+            scopes.append(DatabaseRowScope(table="project_candidates", where_sql="id = ?", params=[candidate_id]))
+        for question_id, _question in question_rows:
+            scopes.append(DatabaseRowScope(table="questions", where_sql="id = ?", params=[question_id]))
+
+        indexed_ids = [
+            *(concept.id for concept, _ in db_concepts),
+            *(claim.id for claim, _ in db_claims),
+            *(entity.id for entity, _ in db_entities),
+            *(decision.id for decision in db_decisions),
+        ]
+        db_plan = DatabaseMutationPlan(
+            scopes=scopes,
+            fts_object_ids=indexed_ids,
+            vector_object_ids=indexed_ids,
+            description=f"Compile canonical knowledge from {source_id}",
+        )
 
         def db_action(conn: sqlite3.Connection) -> None:
             for concept, note_path in db_concepts:
                 BrainRepository.upsert_concept_db(conn, concept, note_path)
+                concept_text = f"{concept.title}\n{concept.summary}"
+                self.store.index_text_in_connection(
+                    conn,
+                    object_id=concept.id,
+                    object_type="concept",
+                    title=concept.title,
+                    text=concept_text,
+                    source_id=source_id,
+                    locator=note_path,
+                )
+                self.vectors.upsert_in_connection(
+                    conn,
+                    object_id=concept.id,
+                    object_type="concept",
+                    title=concept.title,
+                    text=concept_text,
+                    source_id=source_id,
+                    metadata={
+                        "project_ids": concept.project_ids,
+                        "status": concept.status,
+                        "verification_state": concept.verification_state.value,
+                        "locator": note_path,
+                    },
+                )
             for claim, claim_note_path in db_claims:
                 BrainRepository.insert_claim_db(conn, claim, claim_note_path)
+                self.store.index_text_in_connection(
+                    conn,
+                    object_id=claim.id,
+                    object_type="claim",
+                    title="Claim",
+                    text=claim.statement,
+                    source_id=source_id,
+                    locator=claim_note_path,
+                )
+                self.vectors.upsert_in_connection(
+                    conn,
+                    object_id=claim.id,
+                    object_type="claim",
+                    title="Claim",
+                    text=claim.statement,
+                    source_id=source_id,
+                    metadata={
+                        "project_ids": claim.project_ids,
+                        "confidence_state": claim.confidence_state.value,
+                        "locator": claim_note_path or claim.source_locator,
+                    },
+                )
             for entity, entity_note_path in db_entities:
                 BrainRepository.insert_entity_db(conn, entity, entity_note_path)
+                entity_text = f"{entity.name}\n{entity.entity_type}"
+                self.store.index_text_in_connection(
+                    conn,
+                    object_id=entity.id,
+                    object_type="entity",
+                    title=entity.name,
+                    text=entity_text,
+                    source_id=source_id,
+                    locator=entity_note_path,
+                )
+                self.vectors.upsert_in_connection(
+                    conn,
+                    object_id=entity.id,
+                    object_type="entity",
+                    title=entity.name,
+                    text=entity_text,
+                    source_id=source_id,
+                    metadata={
+                        "project_ids": entity.project_ids,
+                        "entity_type": entity.entity_type,
+                        "locator": entity_note_path,
+                    },
+                )
             for decision in db_decisions:
                 BrainRepository.insert_decision_db(conn, decision)
+                decision_text = f"{decision.decision}\n{decision.reasoning}"
+                decision_path = f"03 Knowledge/Decisions/{decision.id}.md"
+                self.store.index_text_in_connection(
+                    conn,
+                    object_id=decision.id,
+                    object_type="decision",
+                    title="Decision",
+                    text=decision_text,
+                    source_id=source_id,
+                    locator=decision_path,
+                )
+                self.vectors.upsert_in_connection(
+                    conn,
+                    object_id=decision.id,
+                    object_type="decision",
+                    title="Decision",
+                    text=decision_text,
+                    source_id=source_id,
+                    metadata={
+                        "project_id": decision.project_id,
+                        "status": decision.status,
+                        "supersedes": decision.supersedes,
+                        "superseded_by": decision.superseded_by,
+                        "locator": decision_path,
+                    },
+                )
             for relation in relationships:
                 BrainRepository.insert_relationship_db(conn, relation)
             for conflict_id, left_id, right_id, explanation in conflicts_to_insert:
@@ -303,128 +449,36 @@ class KnowledgeCompiler:
                         datetime.now(UTC).isoformat(),
                     ),
                 )
-            for loop in extraction.open_loops:
+            for loop_id, loop in open_loop_rows:
                 BrainRepository.insert_open_loop_db(
                     conn,
-                    loop_id=f"LOP-{uuid4()}",
+                    loop_id=loop_id,
                     text=loop.text,
                     project_id=loop.project_id,
                     source_id=source_id,
                 )
-            for candidate in extraction.project_candidates:
+            for candidate_id, candidate in project_candidate_rows:
                 BrainRepository.insert_project_candidate_db(
                     conn,
-                    candidate_id=f"PCD-{uuid4()}",
+                    candidate_id=candidate_id,
                     name=candidate.name,
                     rationale=candidate.rationale,
                     confidence_state=candidate.confidence_state.value,
                     source_id=source_id,
                 )
-            for question in extraction.questions:
+            for question_id, question in question_rows:
                 BrainRepository.insert_question_db(
                     conn,
-                    question_id=f"QUE-{uuid4()}",
+                    question_id=question_id,
                     question=question,
                     source_id=source_id,
                 )
-            conn.execute("UPDATE sources SET status = ? WHERE id = ?", (ProcessingState.COMPLETE.value, source_id))
+            conn.execute(
+                "UPDATE sources SET status = ? WHERE id = ?",
+                (ProcessingState.COMPLETE.value, source_id),
+            )
 
-        if writes or db_concepts or db_claims or db_entities or db_decisions or relationships or extraction.open_loops or extraction.project_candidates or extraction.questions:
-            self.transactions.apply(main_plan, db_action=db_action)
-        else:
-            with self.store.transaction() as conn:
-                db_action(conn)
-
-        for concept, note_path in db_concepts:
-            concept_text = f"{concept.title}\n{concept.summary}"
-            self.store.index_text(
-                object_id=concept.id,
-                object_type="concept",
-                title=concept.title,
-                text=concept_text,
-                source_id=source_id,
-                locator=note_path,
-            )
-            self.vectors.upsert(
-                object_id=concept.id,
-                object_type="concept",
-                title=concept.title,
-                text=concept_text,
-                source_id=source_id,
-                metadata={
-                    "project_ids": concept.project_ids,
-                    "status": concept.status,
-                    "verification_state": concept.verification_state.value,
-                    "locator": note_path,
-                },
-            )
-        for claim, claim_note_path in db_claims:
-            self.store.index_text(
-                object_id=claim.id,
-                object_type="claim",
-                title="Claim",
-                text=claim.statement,
-                source_id=source_id,
-                locator=claim_note_path,
-            )
-            self.vectors.upsert(
-                object_id=claim.id,
-                object_type="claim",
-                title="Claim",
-                text=claim.statement,
-                source_id=source_id,
-                metadata={
-                    "project_ids": claim.project_ids,
-                    "confidence_state": claim.confidence_state.value,
-                    "locator": claim_note_path or claim.source_locator,
-                },
-            )
-        for entity, entity_note_path in db_entities:
-            self.store.index_text(
-                object_id=entity.id,
-                object_type="entity",
-                title=entity.name,
-                text=f"{entity.name}\n{entity.entity_type}",
-                source_id=source_id,
-                locator=entity_note_path,
-            )
-            self.vectors.upsert(
-                object_id=entity.id,
-                object_type="entity",
-                title=entity.name,
-                text=f"{entity.name}\n{entity.entity_type}",
-                source_id=source_id,
-                metadata={
-                    "project_ids": entity.project_ids,
-                    "entity_type": entity.entity_type,
-                    "locator": entity_note_path,
-                },
-            )
-        for decision in extraction.decisions:
-            decision_text = f"{decision.decision}\n{decision.reasoning}"
-            decision_path = f"03 Knowledge/Decisions/{decision.id}.md"
-            self.store.index_text(
-                object_id=decision.id,
-                object_type="decision",
-                title="Decision",
-                text=decision_text,
-                source_id=source_id,
-                locator=decision_path,
-            )
-            self.vectors.upsert(
-                object_id=decision.id,
-                object_type="decision",
-                title="Decision",
-                text=decision_text,
-                source_id=source_id,
-                metadata={
-                    "project_id": decision.project_id,
-                    "status": decision.status,
-                    "supersedes": decision.supersedes,
-                    "superseded_by": decision.superseded_by,
-                    "locator": decision_path,
-                },
-            )
+        self.transactions.apply(main_plan, db_action=db_action, db_plan=db_plan)
 
         for proposal, incoming, existing in review_plans:
             item = self.reviews.stage(
