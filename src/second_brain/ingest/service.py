@@ -16,6 +16,7 @@ import yaml
 
 from second_brain.config import BrainConfig, load_config
 from second_brain.embeddings.factory import create_embedding_provider
+from second_brain.enrichment.service import EnrichmentService
 from second_brain.exceptions import SecurityViolation, UnsupportedSourceError
 from second_brain.ingest.archive import discover_folder_files
 from second_brain.ingest.dispatcher import ParserDispatcher
@@ -64,11 +65,13 @@ class IngestionService:
         config: BrainConfig | None = None,
         store: SQLiteStore | None = None,
         dispatcher: ParserDispatcher | None = None,
+        enrichment: EnrichmentService | None = None,
     ) -> None:
         self.paths = paths or BrainPaths.discover()
         self.config = config or load_config(self.paths)
         self.store = store or SQLiteStore(self.paths.db)
         self.dispatcher = dispatcher or ParserDispatcher()
+        self.enrichment = enrichment or EnrichmentService()
         self.store.initialize()
         self.trust = TrustStore(self.paths)
         self.vectors = VectorStore(
@@ -196,6 +199,8 @@ class IngestionService:
                 )
 
             document = self.dispatcher.parse(raw_path, sid)
+            enrichment = self.enrichment.enrich(raw_path, document)
+            document = enrichment.document
             source.status = ProcessingState.EXTRACTED
             extracted_path = self._write_extraction(document)
             source.extracted_path = str(extracted_path)
@@ -223,9 +228,13 @@ class IngestionService:
             # AI compilation is a later, optional stage. Deterministic ingestion remains useful
             # and lossless when no provider is configured.
             final_state = (
-                ProcessingState.NEEDS_AI
-                if self.config.ai.provider.lower() in {"", "none"}
-                else ProcessingState.CLASSIFIED
+                ProcessingState.NEEDS_ENRICHMENT
+                if enrichment.needs_enrichment
+                else (
+                    ProcessingState.NEEDS_AI
+                    if self.config.ai.provider.lower() in {"", "none"}
+                    else ProcessingState.CLASSIFIED
+                )
             )
             source.status = final_state
             self.store.upsert_source(source, mime_type=document.mime_type)
@@ -235,9 +244,13 @@ class IngestionService:
                 stage=final_state.value,
                 source_id=sid,
                 next_action=(
-                    "Configure/enable an AI provider to compile knowledge."
-                    if final_state == ProcessingState.NEEDS_AI
-                    else "Ready for structured AI compilation."
+                    enrichment.next_action
+                    if final_state == ProcessingState.NEEDS_ENRICHMENT
+                    else (
+                        "Configure/enable an AI provider to compile knowledge."
+                        if final_state == ProcessingState.NEEDS_AI
+                        else "Ready for structured AI compilation."
+                    )
                 ),
             )
             extraction_note = self._extraction_note(document)
@@ -254,7 +267,11 @@ class IngestionService:
                 final_state,
                 raw_path=raw_path,
                 extracted_path=extracted_path,
-                message="Preserved, extracted and indexed deterministically.",
+                message=(
+                    enrichment.next_action
+                    if final_state == ProcessingState.NEEDS_ENRICHMENT
+                    else "Preserved, extracted and indexed deterministically."
+                ),
             )
         except (SecurityViolation, UnsupportedSourceError) as exc:
             if sid is not None and self.store.source_by_id(sid) is not None:

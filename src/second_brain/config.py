@@ -37,6 +37,12 @@ class EmbeddingsConfig(BaseModel):
     schema_version: str = "embedding-v2"
 
 
+class EnrichmentConfig(BaseModel):
+    ocr_provider: str = "none"
+    vision_provider: str = "none"
+    transcription_provider: str = "none"
+
+
 class RetrievalConfig(BaseModel):
     lexical_enabled: bool = True
     semantic_enabled: bool = True
@@ -66,6 +72,7 @@ class BrainConfig(BaseModel):
     ingestion: IngestionConfig = Field(default_factory=IngestionConfig)
     ai: AIConfig = Field(default_factory=AIConfig)
     embeddings: EmbeddingsConfig = Field(default_factory=EmbeddingsConfig)
+    enrichment: EnrichmentConfig = Field(default_factory=EnrichmentConfig)
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
     maintenance: MaintenanceConfig = Field(default_factory=MaintenanceConfig)
     security: SecurityConfig = Field(default_factory=SecurityConfig)

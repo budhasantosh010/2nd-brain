@@ -18,6 +18,11 @@ embeddings:
   dimensions: 384
   schema_version: embedding-v2
 
+enrichment:
+  ocr_provider: none
+  vision_provider: none
+  transcription_provider: none
+
 retrieval:
   lexical_enabled: true
   semantic_enabled: true

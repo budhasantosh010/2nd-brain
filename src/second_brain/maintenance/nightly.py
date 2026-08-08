@@ -142,7 +142,7 @@ class NightlyMaintenance:
         metrics = collect_metrics(self.store)
 
         processing_lines = ["# Processing Status", "", "> Generated from durable processing jobs.", ""]
-        for state in ("FAILED", "QUARANTINED", "NEEDS_AI", "NEEDS_REVIEW", "COMPLETE"):
+        for state in ("FAILED", "QUARANTINED", "NEEDS_ENRICHMENT", "NEEDS_AI", "NEEDS_REVIEW", "COMPLETE"):
             processing_lines.extend([f"## {state}", ""])
             matched = [row for row in jobs if str(row["state"]) == state]
             if not matched:
