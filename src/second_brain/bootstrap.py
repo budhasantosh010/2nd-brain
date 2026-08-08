@@ -131,9 +131,16 @@ class BootstrapResult:
         return not self.missing_files and not self.missing_dirs
 
 
-def validate_vault_structure(vault: Path) -> tuple[list[str], list[str]]:
+def validate_vault_structure(
+    vault: Path, *, require_runtime_dirs: bool = True
+) -> tuple[list[str], list[str]]:
     missing_files = [rel for rel in REQUIRED_FILES if not (vault / rel).is_file()]
-    missing_dirs = [rel for rel in REQUIRED_DIRS if not (vault / rel).is_dir()]
+    required_dirs = (
+        REQUIRED_DIRS
+        if require_runtime_dirs
+        else tuple(rel for rel in REQUIRED_DIRS if not rel.startswith(".brain/"))
+    )
+    missing_dirs = [rel for rel in required_dirs if not (vault / rel).is_dir()]
     return missing_files, missing_dirs
 
 

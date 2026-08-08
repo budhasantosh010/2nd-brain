@@ -22,9 +22,11 @@ class ValidationReport:
         return not self.errors
 
 
-def validate_vault(vault: Path) -> ValidationReport:
+def validate_vault(vault: Path, *, require_runtime_dirs: bool = True) -> ValidationReport:
     report = ValidationReport()
-    missing_files, missing_dirs = validate_vault_structure(vault)
+    missing_files, missing_dirs = validate_vault_structure(
+        vault, require_runtime_dirs=require_runtime_dirs
+    )
     report.errors.extend(f"missing file: {value}" for value in missing_files)
     report.errors.extend(f"missing directory: {value}" for value in missing_dirs)
 

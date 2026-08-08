@@ -23,7 +23,9 @@ def main() -> int:
         if not isinstance(value, dict) or value.get("type") != "object":
             errors.append(f"{path.relative_to(root)}: expected top-level JSON Schema object type")
 
-    report = validate_vault(root / "vault-template")
+    # The tracked template intentionally omits generated runtime .brain directories.
+    # `second-brain init` creates and validates those directories on a real vault.
+    report = validate_vault(root / "vault-template", require_runtime_dirs=False)
     errors.extend(report.errors)
     if errors:
         print("Project validation failed:")
