@@ -21,7 +21,7 @@ from second_brain.ingest.archive import discover_folder_files
 from second_brain.ingest.dispatcher import ParserDispatcher
 from second_brain.ingest.fingerprint import sha256_file
 from second_brain.ingest.fingerprint import source_id as make_source_id
-from second_brain.ingest.security import classify_source, ensure_safe_input_path
+from second_brain.ingest.security import TrustStore, classify_source, ensure_safe_input_path
 from second_brain.models import ParsedDocument, ProcessingState, SourceRecord
 from second_brain.paths import BrainPaths
 from second_brain.storage.markdown import atomic_write
@@ -70,6 +70,7 @@ class IngestionService:
         self.store = store or SQLiteStore(self.paths.db)
         self.dispatcher = dispatcher or ParserDispatcher()
         self.store.initialize()
+        self.trust = TrustStore(self.paths)
         self.vectors = VectorStore(
             self.store,
             create_embedding_provider(self.config, self.paths),
@@ -133,8 +134,13 @@ class IngestionService:
                     message="Exact SHA256 duplicate; canonical source was not duplicated.",
                 )
 
+            trusted_paths = tuple(Path(value) for value in self.trust.list())
             classification = classify_source(
-                path, scan_secrets=self.config.security.secret_scanning
+                path,
+                scan_secrets=self.config.security.secret_scanning,
+                trusted_paths=trusted_paths,
+                ai_allowed_root=self.paths.inbox / "AI Allowed",
+                local_only_root=self.paths.inbox / "Local Only",
             )
             raw_path = self._preserve(path, sid, digest)
             now = datetime.now(UTC)

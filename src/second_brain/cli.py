@@ -12,6 +12,8 @@ import typer
 from second_brain.bootstrap import initialize_vault
 from second_brain.config import load_config
 from second_brain.doctor import doctor
+from second_brain.ingest.egress import SourceEgressService
+from second_brain.ingest.security import TrustStore
 from second_brain.ingest.service import IngestionService, IngestResult
 from second_brain.ingest.watcher import InboxWatcher
 from second_brain.knowledge.compiler import KnowledgeCompiler
@@ -38,9 +40,13 @@ app = typer.Typer(
 review_app = typer.Typer(help="Inspect and decide staged high-risk/ambiguous changes.", no_args_is_help=True)
 maintain_app = typer.Typer(help="Run idempotent maintenance routines.", no_args_is_help=True)
 mcp_app = typer.Typer(help="Expose policy-scoped brain tools over local MCP.", no_args_is_help=True)
+source_app = typer.Typer(help="Inspect and change per-source egress permissions.", no_args_is_help=True)
+trust_app = typer.Typer(help="Manage trusted local ingestion paths.", no_args_is_help=True)
 app.add_typer(review_app, name="review")
 app.add_typer(maintain_app, name="maintain")
 app.add_typer(mcp_app, name="mcp")
+app.add_typer(source_app, name="source")
+app.add_typer(trust_app, name="trust")
 
 
 def _runtime() -> tuple[BrainPaths, SQLiteStore]:
@@ -245,6 +251,42 @@ def rebuild_command() -> None:
 def recover_command() -> None:
     """Rollback interrupted canonical operations from transaction history."""
     _json({"recovered": TransactionManager().recover_interrupted()})
+
+
+@source_app.command("show")
+def source_show(source_id: Annotated[str, typer.Argument()]) -> None:
+    """Show source egress/security state without exposing secret values."""
+    _json(SourceEgressService().show(source_id))
+
+
+@source_app.command("allow-cloud")
+def source_allow_cloud(source_id: Annotated[str, typer.Argument()]) -> None:
+    """Mark one already-preserved source cloud-eligible after a fresh secret scan."""
+    _json(SourceEgressService().allow_cloud(source_id))
+
+
+@source_app.command("local-only")
+def source_local_only(source_id: Annotated[str, typer.Argument()]) -> None:
+    """Explicitly deny cloud egress for one source."""
+    _json(SourceEgressService().local_only(source_id))
+
+
+@trust_app.command("list")
+def trust_list() -> None:
+    """List durable trusted ingestion paths."""
+    _json({"trusted_paths": TrustStore().list()})
+
+
+@trust_app.command("add")
+def trust_add(path: Annotated[Path, typer.Argument()]) -> None:
+    """Trust a path for cloud eligibility; secret scanning still has higher precedence."""
+    _json({"trusted_paths": TrustStore().add(path)})
+
+
+@trust_app.command("remove")
+def trust_remove(path: Annotated[Path, typer.Argument()]) -> None:
+    """Remove a trusted path."""
+    _json({"trusted_paths": TrustStore().remove(path)})
 
 
 @mcp_app.command("serve")
