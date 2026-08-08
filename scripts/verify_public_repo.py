@@ -39,7 +39,10 @@ def violations() -> list[str]:
     for rel in tracked_files():
         path = Path(rel)
         posix = rel.replace("\\", "/")
-        if any(pattern.search(posix) for pattern in FORBIDDEN_PATH_PATTERNS):
+        safe_template_config = posix == "vault-template/.brain/config.yaml"
+        if not safe_template_config and any(
+            pattern.search(posix) for pattern in FORBIDDEN_PATH_PATTERNS
+        ):
             problems.append(f"forbidden runtime/private path tracked: {rel}")
         if path.suffix.lower() in FORBIDDEN_EXTENSIONS:
             problems.append(f"forbidden private/runtime extension tracked: {rel}")

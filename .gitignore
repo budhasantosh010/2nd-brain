@@ -29,6 +29,10 @@ secrets*.json
 /cache/
 .brain/
 **/.brain/
+# The tracked vault template needs one safe, non-secret default config.
+!vault-template/.brain/
+vault-template/.brain/*
+!vault-template/.brain/config.yaml
 *.log
 
 # Raw/private content accidentally copied outside vault
