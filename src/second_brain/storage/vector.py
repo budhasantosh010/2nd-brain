@@ -111,7 +111,7 @@ class VectorStore:
                     metadata=metadata,
                 )
             )
-        scored.sort(key=lambda hit: hit.score, reverse=True)
+        scored.sort(key=lambda hit: (-hit.score, hit.object_id))
         return scored[:limit]
 
     def clear(self) -> None:

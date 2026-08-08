@@ -176,6 +176,10 @@ def capture_snapshot(conn: sqlite3.Connection, plan: DatabaseMutationPlan) -> Tr
 def restore_snapshot(conn: sqlite3.Connection, snapshot: TransactionSnapshot) -> None:
     """Restore only declared rows, preserving unrelated later operations."""
 
+    # A bounded restore may temporarily delete a referenced parent before reinserting the
+    # exact prior row. Defer FK enforcement until transaction commit, when the complete
+    # declared snapshot has been restored.
+    conn.execute("PRAGMA defer_foreign_keys = ON")
     ordered = sorted(
         snapshot.rows,
         key=lambda item: (_TABLE_DEPENDENCY_RANK.get(item.scope.table, 50), item.scope.table),

@@ -15,6 +15,7 @@ from second_brain.embeddings.local import LocalEmbeddingProvider
 from second_brain.models import PlannedWrite
 from second_brain.paths import BrainPaths
 from second_brain.review.service import ReviewService
+from second_brain.storage.durable import ProjectStateEvent, append_jsonl_event
 from second_brain.storage.markdown import file_sha256
 from second_brain.storage.sqlite import SQLiteStore
 from second_brain.storage.vector import VectorStore
@@ -86,6 +87,14 @@ class ProjectService:
             PlannedWrite(path=f"{folder}/Feedback/.keep", content=""),
         ]
         plan = build_plan(f"Create project {spec.title}", writes, permission_level=1)
+        event = self._state_event(
+            project_id,
+            state,
+            operation_id=plan.operation_id,
+            timestamp=now,
+            status="created",
+        )
+        plan.metadata["project_state_event"] = event.model_dump(mode="json")
 
         def db_action(conn: sqlite3.Connection) -> None:
             conn.execute(
@@ -127,6 +136,7 @@ class ProjectService:
             db_action=db_action,
             db_plan=self._project_db_plan(project_id),
         )
+        self._append_state_event(event)
         return project_id
 
     def update_state(
@@ -170,6 +180,14 @@ class ProjectService:
                 }
             }
         )
+        event = self._state_event(
+            project_id,
+            state,
+            operation_id=plan.operation_id,
+            timestamp=now,
+            status="applied",
+        )
+        plan.metadata["project_state_event"] = event.model_dump(mode="json")
         if ambiguous:
             item = self.reviews.stage(
                 plan,
@@ -194,6 +212,7 @@ class ProjectService:
             db_action=db_action,
             db_plan=self._project_db_plan(project_id),
         )
+        self._append_state_event(event)
         return operation_id
 
     def create_handoff(self, project_id: str) -> str:
@@ -272,6 +291,40 @@ class ProjectService:
         )
         conn.execute(
             "UPDATE projects SET updated_at = ? WHERE id = ?", (now.isoformat(), project_id)
+        )
+
+    def _state_event(
+        self,
+        project_id: str,
+        state: ProjectStateInput,
+        *,
+        operation_id: str,
+        timestamp: datetime,
+        status: str,
+        compensates_event_id: str | None = None,
+    ) -> ProjectStateEvent:
+        return ProjectStateEvent(
+            project_id=project_id,
+            timestamp=timestamp.isoformat(),
+            current_state=state.current_state,
+            last_completed=state.last_completed,
+            currently_working_on=state.currently_working_on,
+            next_action=state.next_action,
+            blockers=state.blockers,
+            open_questions=state.open_questions,
+            evidence=state.latest_verified_evidence,
+            source_ids=state.source_ids,
+            verified_at=timestamp.isoformat(),
+            operation_id=operation_id,
+            status=status,  # type: ignore[arg-type]
+            compensates_event_id=compensates_event_id,
+        )
+
+    def _append_state_event(self, event: ProjectStateEvent) -> None:
+        append_jsonl_event(
+            self.paths.brain / "ledgers" / "projects" / f"{event.project_id}.jsonl",
+            event.model_dump(mode="json"),
+            event_id=event.event_id,
         )
 
     @staticmethod

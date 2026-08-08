@@ -35,6 +35,11 @@ from second_brain.models import (
 from second_brain.paths import BrainPaths
 from second_brain.providers import AIProvider, create_provider
 from second_brain.review.service import ReviewService
+from second_brain.storage.durable import (
+    CanonicalResolutionLedger,
+    ConceptResolution,
+    render_resolution,
+)
 from second_brain.storage.markdown import file_sha256
 from second_brain.storage.repository import BrainRepository
 from second_brain.storage.sqlite import SQLiteStore
@@ -135,6 +140,7 @@ class KnowledgeCompiler:
         relationships: list[RelationshipRecord] = []
         conflicts_to_insert: list[tuple[str, str, str, str]] = []
         review_plans: list[tuple[OperationPlan, ConceptRecord, dict[str, object]]] = []
+        concept_resolutions: list[ConceptResolution] = []
 
         for concept in extraction.concepts:
             if source_id not in concept.source_ids:
@@ -146,10 +152,27 @@ class KnowledgeCompiler:
                 db_concepts.append((concept, rel))
                 relationships.append(derived_from(concept.id, source_id))
                 result.created_concepts.append(concept.id)
+                concept_resolutions.append(
+                    ConceptResolution(
+                        incoming_id=concept.id,
+                        canonical_id=concept.id,
+                        action="created",
+                        evidence=[source_id],
+                    )
+                )
             elif match.action == MatchAction.DUPLICATE and match.existing_id:
                 relationships.append(derived_from(match.existing_id, source_id))
                 result.duplicate_concepts.append(match.existing_id)
+                concept_resolutions.append(
+                    ConceptResolution(
+                        incoming_id=concept.id,
+                        canonical_id=match.existing_id,
+                        action="duplicate",
+                        evidence=[source_id],
+                    )
+                )
             elif match.action == MatchAction.UPDATE and match.existing_id:
+                incoming_extracted_id = concept.id
                 existing = self.repository.concept_by_id(match.existing_id)
                 if existing is None:
                     continue
@@ -176,7 +199,20 @@ class KnowledgeCompiler:
                 )
                 proposal.metadata["concept_update"] = incoming.model_dump(mode="json")
                 proposal.metadata["note_path"] = note_path
+                proposal.metadata["resolution_source_id"] = source_id
+                proposal.metadata["resolution_incoming_id"] = incoming_extracted_id
+                proposal.metadata["resolution_canonical_id"] = match.existing_id
                 review_plans.append((proposal, incoming, existing))
+                relationships.append(derived_from(match.existing_id, source_id))
+                concept_resolutions.append(
+                    ConceptResolution(
+                        incoming_id=incoming_extracted_id,
+                        canonical_id=match.existing_id,
+                        action="review_pending",
+                        evidence=[source_id],
+                        review_operation_id=proposal.operation_id,
+                    )
+                )
 
         with self.store.connect() as conn:
             existing_claim_rows = conn.execute("SELECT id, statement FROM claims").fetchall()
@@ -242,34 +278,127 @@ class KnowledgeCompiler:
             relationships.append(derived_from(decision.id, source_id))
             result.decisions.append(decision.id)
 
-        ledger_rel = f".brain/ledgers/knowledge-{source_id}.json"
-        writes.append(
-            PlannedWrite(
-                path=ledger_rel,
-                content=json.dumps(
-                    {
-                        "source_id": source_id,
-                        "source_hash": str(source_row["content_hash"]),
-                        "schema": "knowledge-extraction-v1",
-                        "provider": self.provider.name if self.provider is not None else "none",
-                        "model": self.provider.model if self.provider is not None else "",
-                        "compiled_at": datetime.now(UTC).isoformat(),
-                        "extraction": extraction.model_dump(mode="json"),
-                    },
-                    indent=2,
-                    sort_keys=True,
+        open_loop_rows = [(f"LOP-{uuid4()}", loop) for loop in extraction.open_loops]
+        project_candidate_rows = [
+            (f"PCD-{uuid4()}", candidate) for candidate in extraction.project_candidates
+        ]
+        question_rows = [(f"QUE-{uuid4()}", question) for question in extraction.questions]
+
+        extraction_rel = f".brain/ledgers/extractions/{source_id}.json"
+        extraction_path = self.paths.vault / extraction_rel
+        if not extraction_path.exists():
+            writes.append(
+                PlannedWrite(
+                    path=extraction_rel,
+                    content=json.dumps(
+                        {
+                            "source_id": source_id,
+                            "source_hash": str(source_row["content_hash"]),
+                            "schema": "knowledge-extraction-v1",
+                            "provider": self.provider.name if self.provider is not None else "none",
+                            "model": self.provider.model if self.provider is not None else "",
+                            "compiled_at": datetime.now(UTC).isoformat(),
+                            "extraction": extraction.model_dump(mode="json"),
+                        },
+                        indent=2,
+                        sort_keys=True,
+                    )
+                    + "\n",
                 )
-                + "\n",
             )
+
+        resolution = CanonicalResolutionLedger(
+            source_id=source_id,
+            source_hash=str(source_row["content_hash"]),
+            concept_resolutions=concept_resolutions,
+            claims=[
+                {
+                    **claim.model_dump(mode="json"),
+                    "materialized_path": claim_note_path,
+                }
+                for claim, claim_note_path in db_claims
+            ],
+            entities=[
+                {**entity.model_dump(mode="json"), "note_path": entity_note_path}
+                for entity, entity_note_path in db_entities
+            ],
+            decisions=[decision.model_dump(mode="json") for decision in db_decisions],
+            relationships=[relation.model_dump(mode="json") for relation in relationships],
+            conflicts=[
+                {
+                    "id": conflict_id,
+                    "left_id": left_id,
+                    "right_id": right_id,
+                    "conflict_type": "claim-contradiction",
+                    "status": "open",
+                    "explanation": explanation,
+                    "source_id": source_id,
+                }
+                for conflict_id, left_id, right_id, explanation in conflicts_to_insert
+            ],
+            questions=[
+                {"id": question_id, "question": question, "source_id": source_id}
+                for question_id, question in question_rows
+            ],
+            open_loops=[
+                {
+                    "id": loop_id,
+                    "text": loop.text,
+                    "project_id": loop.project_id,
+                    "source_id": source_id,
+                    "status": loop.status,
+                }
+                for loop_id, loop in open_loop_rows
+            ],
+            project_candidates=[
+                {
+                    "id": candidate_id,
+                    **candidate.model_dump(mode="json"),
+                    "source_id": source_id,
+                }
+                for candidate_id, candidate in project_candidate_rows
+            ],
         )
+        resolution_rel = f".brain/ledgers/resolutions/{source_id}.json"
+        resolution_path = self.paths.vault / resolution_rel
+        if not resolution_path.exists():
+            writes.append(PlannedWrite(path=resolution_rel, content=render_resolution(resolution)))
+
+        ledger_rel = f".brain/ledgers/knowledge-{source_id}.json"
+        legacy_path = self.paths.vault / ledger_rel
+        if not legacy_path.exists():
+            writes.append(
+                PlannedWrite(
+                    path=ledger_rel,
+                    content=json.dumps(
+                        {
+                            "source_id": source_id,
+                            "source_hash": str(source_row["content_hash"]),
+                            "schema": "knowledge-extraction-v1",
+                            "provider": self.provider.name if self.provider is not None else "none",
+                            "model": self.provider.model if self.provider is not None else "",
+                            "compiled_at": datetime.now(UTC).isoformat(),
+                            "extraction": extraction.model_dump(mode="json"),
+                        },
+                        indent=2,
+                        sort_keys=True,
+                    )
+                    + "\n",
+                )
+            )
 
         source_record_rel = f"02 Sources/Records/{source_id}.md"
         source_record_path = self.paths.vault / source_record_rel
+        updated_source_record_content: str | None = None
         if source_record_path.exists():
+            updated_source_record_content = self._source_record_with_status(
+                source_record_path,
+                ProcessingState.COMPLETE,
+            )
             writes.append(
                 PlannedWrite(
                     path=source_record_rel,
-                    content=self._source_record_with_status(source_record_path, ProcessingState.COMPLETE),
+                    content=updated_source_record_content,
                     expected_hash=file_sha256(source_record_path),
                 )
             )
@@ -277,11 +406,6 @@ class KnowledgeCompiler:
         main_plan = build_plan(
             f"Compile validated knowledge from {source_id}", writes, permission_level=1
         )
-        open_loop_rows = [(f"LOP-{uuid4()}", loop) for loop in extraction.open_loops]
-        project_candidate_rows = [
-            (f"PCD-{uuid4()}", candidate) for candidate in extraction.project_candidates
-        ]
-        question_rows = [(f"QUE-{uuid4()}", question) for question in extraction.questions]
 
         scopes: list[DatabaseRowScope] = [
             DatabaseRowScope(
@@ -321,9 +445,12 @@ class KnowledgeCompiler:
             *(entity.id for entity, _ in db_entities),
             *(decision.id for decision in db_decisions),
         ]
+        fts_ids = list(indexed_ids)
+        if updated_source_record_content is not None:
+            fts_ids.append(source_id)
         db_plan = DatabaseMutationPlan(
             scopes=scopes,
-            fts_object_ids=indexed_ids,
+            fts_object_ids=fts_ids,
             vector_object_ids=indexed_ids,
             description=f"Compile canonical knowledge from {source_id}",
         )
@@ -349,6 +476,7 @@ class KnowledgeCompiler:
                     text=concept_text,
                     source_id=source_id,
                     metadata={
+                        "source_ids": concept.source_ids,
                         "project_ids": concept.project_ids,
                         "status": concept.status,
                         "verification_state": concept.verification_state.value,
@@ -477,6 +605,16 @@ class KnowledgeCompiler:
                 "UPDATE sources SET status = ? WHERE id = ?",
                 (ProcessingState.COMPLETE.value, source_id),
             )
+            if updated_source_record_content is not None:
+                self.store.index_text_in_connection(
+                    conn,
+                    object_id=source_id,
+                    object_type="source-record",
+                    title=str(source_row["title"]),
+                    text=updated_source_record_content,
+                    source_id=source_id,
+                    locator="source record",
+                )
 
         self.transactions.apply(main_plan, db_action=db_action, db_plan=db_plan)
 

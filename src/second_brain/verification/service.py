@@ -17,6 +17,7 @@ from second_brain.models import (
 )
 from second_brain.paths import BrainPaths
 from second_brain.retrieval.service import RetrievalService
+from second_brain.storage.durable import KnowledgeGapEvent, append_jsonl_event
 from second_brain.storage.sqlite import SQLiteStore
 from second_brain.transactions.manager import TransactionManager
 from second_brain.transactions.plan import build_plan
@@ -153,6 +154,20 @@ class VerificationService:
                     now,
                 ),
             )
+        gap_event = KnowledgeGapEvent(
+            question_id=question_id,
+            question=question,
+            event="opened",
+            timestamp=now,
+            missing_evidence=missing,
+            searched=searched,
+            found=found,
+        )
+        append_jsonl_event(
+            self.paths.brain / "ledgers" / "knowledge-gaps.jsonl",
+            gap_event.model_dump(mode="json"),
+            event_id=gap_event.event_id,
+        )
         self.refresh_unanswered_dashboard()
         return question_id
 

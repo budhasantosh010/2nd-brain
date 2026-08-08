@@ -247,7 +247,7 @@ class SQLiteStore:
                 SELECT object_id, object_type, title, text, source_id, locator, bm25(search_fts) AS rank
                 FROM search_fts
                 WHERE search_fts MATCH ?
-                ORDER BY rank
+                ORDER BY rank, object_id
                 LIMIT ?
                 """,
                 (expression, limit),
