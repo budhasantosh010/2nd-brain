@@ -149,6 +149,10 @@ class ReviewService:
         if item.status != "pending":
             raise ValueError(f"Review item is not pending: {review_id} ({item.status})")
         plan = self._load_proposal(item.operation_id)
+        if bool(plan.metadata.get("advisory_only")):
+            raise ValueError(
+                "Advisory review proposals cannot auto-apply; create a concrete reversible operation after review."
+            )
         resolution_write = self._resolution_write(
             plan,
             action="updated",

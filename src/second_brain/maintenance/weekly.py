@@ -6,7 +6,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from second_brain.config import BrainConfig
-from second_brain.knowledge.restructuring import analyze_structure
+from second_brain.knowledge.restructuring import RestructuringService
 from second_brain.models import PlannedWrite
 from second_brain.paths import BrainPaths
 from second_brain.storage.markdown import file_sha256
@@ -21,11 +21,13 @@ class WeeklyMaintenance:
         self.config = config
         self.store = store
         self.transactions = TransactionManager(paths, store)
+        self.restructuring = RestructuringService(paths, config, store)
         self.timezone = ZoneInfo(config.vault.timezone)
 
     def run(self) -> dict[str, object]:
         now = datetime.now(self.timezone)
-        report = analyze_structure(self.store)
+        staged_restructuring = self.restructuring.generate_proposals(limit=5)
+        report = self.restructuring.analyze()
         with self.store.connect() as conn:
             projects_without_next = conn.execute(
                 """
@@ -123,4 +125,5 @@ class WeeklyMaintenance:
             "broken_relationships": len(report.broken_relationships),
             "stale_projects": len(report.stale_projects),
             "pending_reviews": len(unresolved_reviews),
+            "restructuring_proposals": len(staged_restructuring),
         }
