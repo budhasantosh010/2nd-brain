@@ -6,12 +6,13 @@ import json
 import os
 import time
 from collections.abc import Iterator
-from contextlib import contextmanager, suppress
+from contextlib import contextmanager
 from datetime import UTC, datetime
 
 from second_brain.config import BrainConfig, load_config
 from second_brain.ingest.service import IngestionService
 from second_brain.ingest.watcher import InboxWatcher
+from second_brain.locks import ProcessLockManager
 from second_brain.maintenance.monthly import MonthlyMaintenance
 from second_brain.maintenance.nightly import NightlyMaintenance
 from second_brain.maintenance.scheduler import MaintenanceScheduler
@@ -19,6 +20,7 @@ from second_brain.maintenance.weekly import WeeklyMaintenance
 from second_brain.observability.logging import StructuredLogger
 from second_brain.paths import BrainPaths
 from second_brain.storage.sqlite import SQLiteStore
+from second_brain.transactions.manager import TransactionManager
 
 
 class BrainDaemon:
@@ -37,6 +39,8 @@ class BrainDaemon:
         self.logger = StructuredLogger(self.paths, "daemon.jsonl")
         self.ingestion = IngestionService(self.paths, self.config, self.store)
         self.watcher = InboxWatcher(self.ingestion)
+        self.lock_manager = ProcessLockManager(self.paths.locks, self.paths.brain / "ledgers")
+        self.transactions = TransactionManager(self.paths, self.store)
         self._stop = False
 
     def run_once(self) -> dict[str, object]:
@@ -81,7 +85,14 @@ class BrainDaemon:
         self._write_heartbeat("idle")
         return results
 
+    def prepare_startup(self) -> list[str]:
+        """Recover stale ownership/interrupted writes before becoming the live daemon."""
+        self.lock_manager.clear_if_stale("daemon")
+        self.lock_manager.clear_if_stale("writer")
+        return self.transactions.recover_interrupted()
+
     def run_forever(self, poll_seconds: float = 60.0) -> None:
+        self.prepare_startup()
         with self._daemon_lock():
             self.logger.log("daemon_start", result="started")
             # Process pre-existing Inbox material and missed schedules before relying on FS events.
@@ -102,19 +113,8 @@ class BrainDaemon:
 
     @contextmanager
     def _daemon_lock(self) -> Iterator[None]:
-        path = self.paths.locks / "daemon.lock"
-        try:
-            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError as exc:
-            raise RuntimeError(f"Another second-brain daemon appears active: {path}") from exc
-        try:
-            os.write(fd, f"pid={os.getpid()}\nstarted={datetime.now(UTC).isoformat()}\n".encode())
-            os.close(fd)
+        with self.lock_manager.acquire("daemon"):
             yield
-        finally:
-            with suppress(OSError):
-                os.close(fd)
-            path.unlink(missing_ok=True)
 
     def _write_heartbeat(self, state: str) -> None:
         path = self.paths.brain / "runtime" / "heartbeat.json"

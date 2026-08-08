@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "created_at": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "hostname": {
+      "type": "string"
+    },
+    "lock_type": {
+      "enum": [
+        "writer",
+        "daemon"
+      ]
+    },
+    "operation_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "pid": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "process_started_at": {
+      "type": "number"
+    },
+    "schema_version": {
+      "type": "string"
+    },
+    "token": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "token",
+    "pid",
+    "process_started_at",
+    "hostname",
+    "created_at",
+    "lock_type"
+  ],
+  "title": "LockMetadata",
+  "type": "object"
+}

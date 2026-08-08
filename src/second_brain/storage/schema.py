@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 MIGRATION_1 = r"""
 PRAGMA foreign_keys = ON;
@@ -312,4 +312,20 @@ CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts5(
 );
 """
 
-MIGRATIONS: dict[int, str] = {1: MIGRATION_1}
+MIGRATION_2 = r"""
+CREATE TABLE IF NOT EXISTS embedding_profiles (
+    profile_id TEXT PRIMARY KEY,
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    revision TEXT NOT NULL,
+    dimensions INTEGER NOT NULL,
+    schema_version TEXT NOT NULL,
+    learned INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1,
+    metadata_json TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_embedding_profiles_active ON embedding_profiles(active);
+"""
+
+MIGRATIONS: dict[int, str] = {1: MIGRATION_1, 2: MIGRATION_2}

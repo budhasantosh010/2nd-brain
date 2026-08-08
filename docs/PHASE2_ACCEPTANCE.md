@@ -37,3 +37,9 @@ Windows setup/start/stop/uninstall scripts are syntax/smoke-tested using paths w
 ## Release rule
 
 Phase 2 is not complete until the final release validation records all required checks as passing and the pushed branch SHA matches the local final SHA. Known limitations may describe non-blocking quality ceilings, but unfinished acceptance gates must be reported as incomplete rather than hidden as future work.
+<!-- PHASE25_FINAL -->
+## Phase 2.5 final acceptance additions
+
+Phase 2 is not accepted merely because features exist. The hardening release requires proof that Markdown = SQLite = FTS = semantic index after normal writes, rollback and rebuild; stale process ownership recovers safely; unsupported questions refuse; knowledge gaps retain lifecycle history; secret detection overrides cloud trust; durable backups verify; real MCP stdio works; Windows runtime acceptance works; and final local/remote Git SHAs match with push and PR CI green.
+
+A real external provider is the only allowed `NOT VERIFIED` item when no credential is locally configured; this does not block the local-first core. Phase 3 remains out of scope.

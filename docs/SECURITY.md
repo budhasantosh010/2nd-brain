@@ -34,3 +34,9 @@ Archive member traversal (`..`, absolute paths) and archive links are rejected. 
 ## Public repository
 
 `vault/`, env files, databases, embeddings, logs, cache and runtime/private material are ignored. `scripts/verify_public_repo.py` checks the actual tracked-file set so CI does not rely on `.gitignore` alone.
+<!-- PHASE25_FINAL -->
+## Phase 2.5 egress precedence and locks
+
+Cloud eligibility precedence is: detected secret/blocked > sensitive > explicit local-only deny > explicit cloud allow > trusted `AI Allowed` path > default local-only. Every source permission/trust change is audited. A fresh secret scan is performed before explicit `allow-cloud`; an allow cannot override blocked/sensitive content.
+
+Writer and daemon locks contain PID, process start time, hostname, lock type, created timestamp, token and operation ID where relevant. Live owners are protected; dead owners and PID reuse are recognized as stale and recovered with a durable stale-lock event.

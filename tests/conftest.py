@@ -49,6 +49,8 @@ def isolated_brain(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> BrainPath
     vault = tmp_path / "Brain Root With Spaces" / "vault"
     monkeypatch.setenv("SECOND_BRAIN_VAULT", str(vault))
     monkeypatch.setenv("SECOND_BRAIN_AI_PROVIDER", "none")
+    # Keep broad unit/regression tests fast; learned semantics have dedicated real-model acceptance.
+    monkeypatch.setenv("SECOND_BRAIN_EMBEDDING_PROVIDER", "hashing")
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)

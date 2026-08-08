@@ -9,6 +9,8 @@ from second_brain.config import BrainConfig
 from second_brain.ingest.archive import discover_folder_files
 from second_brain.ingest.service import IngestionService
 from second_brain.knowledge.compiler import KnowledgeCompiler
+from second_brain.knowledge.graph_materializer import MarkdownGraphMaterializer
+from second_brain.knowledge.maps import MapGenerator
 from second_brain.knowledge.projects import ProjectService
 from second_brain.maintenance.health import verify_source_integrity
 from second_brain.models import PlannedWrite, ProcessingState
@@ -34,6 +36,8 @@ class NightlyMaintenance:
         self.reviews = ReviewService(paths, store)
         self.verification = VerificationService(paths, store)
         self.transactions = TransactionManager(paths, store)
+        self.graph_materializer = MarkdownGraphMaterializer(paths, store)
+        self.maps = MapGenerator(paths, store)
         self.timezone = ZoneInfo(config.vault.timezone)
 
     def run(self) -> dict[str, object]:
@@ -46,12 +50,16 @@ class NightlyMaintenance:
         writes.append(self._daily_brief_write())
         plan = build_plan("Nightly generated dashboards and daily brief", writes, permission_level=1)
         self.transactions.apply(plan)
+        graph = self.graph_materializer.materialize()
+        maps = self.maps.generate()
         integrity = verify_source_integrity(self.store, limit=25)
         corrupt = [finding.source_id for finding in integrity if not finding.ok]
         return {
             "ingested": ingested,
             "compiled": compiled,
             "handoffs": refreshed_handoffs,
+            "graph": graph,
+            "maps": maps,
             "integrity_checked": len(integrity),
             "corrupt_sources": corrupt,
         }
@@ -129,12 +137,12 @@ class NightlyMaintenance:
                 "SELECT * FROM conflicts WHERE status = 'open' ORDER BY created_at DESC"
             ).fetchall()
             questions = conn.execute(
-                "SELECT * FROM questions WHERE status = 'open' ORDER BY created_at DESC"
+                "SELECT * FROM questions WHERE status IN ('open','candidate_evidence') ORDER BY created_at DESC"
             ).fetchall()
         metrics = collect_metrics(self.store)
 
         processing_lines = ["# Processing Status", "", "> Generated from durable processing jobs.", ""]
-        for state in ("FAILED", "QUARANTINED", "NEEDS_AI", "NEEDS_REVIEW", "COMPLETE"):
+        for state in ("FAILED", "QUARANTINED", "NEEDS_ENRICHMENT", "NEEDS_AI", "NEEDS_REVIEW", "COMPLETE"):
             processing_lines.extend([f"## {state}", ""])
             matched = [row for row in jobs if str(row["state"]) == state]
             if not matched:
@@ -257,7 +265,7 @@ class NightlyMaintenance:
                 """
             ).fetchall()
             loops = conn.execute("SELECT * FROM open_loops WHERE status = 'open' ORDER BY created_at DESC LIMIT 20").fetchall()
-            questions = conn.execute("SELECT * FROM questions WHERE status = 'open' ORDER BY created_at DESC LIMIT 10").fetchall()
+            questions = conn.execute("SELECT * FROM questions WHERE status IN ('open','candidate_evidence') ORDER BY created_at DESC LIMIT 10").fetchall()
             reviews = conn.execute("SELECT * FROM review_items WHERE status = 'pending' ORDER BY created_at LIMIT 10").fetchall()
             concepts = conn.execute("SELECT * FROM concepts ORDER BY updated_at DESC LIMIT 10").fetchall()
         lines = [

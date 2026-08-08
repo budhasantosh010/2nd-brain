@@ -49,3 +49,7 @@ Select the smallest set of evidence that covers the answer, contradictions, and 
 Retrieval is not the final truth step. Before answering, verification checks that sources exist, locators exist where available, excerpts support the claim, dates still apply, contradictory/newer evidence is surfaced, and superseded decisions are not presented as current.
 
 The answer object supports: `answer`, `evidence`, `citations`, `conflicts`, `uncertainty`, and `missing_information`. When evidence is insufficient, produce the grounded refusal defined in `VERIFICATION.md` and record the unresolved question.
+<!-- PHASE25_FINAL -->
+## Phase 2.5 hardening
+
+Use exact metadata + lexical + semantic + graph + temporal retrieval. Learned semantics use BAAI/bge-small-en-v1.5 when configured; hashing is only a fuzzy fallback.

@@ -63,3 +63,9 @@ Allowed semantic relations include:
 `supports`, `contradicts`, `supersedes`, `derived-from`, `related-to`, `part-of`, `applies-to`, `created-by`, `mentions`, `depends-on`, `result-of`.
 
 Links are evidence-bearing semantics, not graph-density decoration.
+<!-- PHASE25_FINAL -->
+## Phase 2.5 durable records
+
+Schema version 2 adds active embedding profiles. Durable file contracts include canonical-resolution ledgers per source, append-only project-state events, append-only knowledge-gap events, transaction snapshots, egress/trust audit events and backup manifests. Decision records carry `supersedes` / `superseded_by`; predecessor Markdown, DB and indexes move together and are rollback-scoped.
+
+Source sensitivity is one of `local_only`, `cloud_allowed`, `sensitive`, or `blocked`. This value is persisted in source DB/manifests/records and explicit changes are audited. Generated vector rows embed provider/model/revision/dimensions/schema metadata so profile changes invalidate stale vectors.

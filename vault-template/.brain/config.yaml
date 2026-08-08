@@ -12,8 +12,16 @@ ai:
   allow_cloud_ai: false
 
 embeddings:
-  provider: local
+  provider: learned
+  model: BAAI/bge-small-en-v1.5
+  revision: fastembed-model-registry
   dimensions: 384
+  schema_version: embedding-v2
+
+enrichment:
+  ocr_provider: none
+  vision_provider: none
+  transcription_provider: none
 
 retrieval:
   lexical_enabled: true

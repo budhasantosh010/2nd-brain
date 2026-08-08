@@ -9,9 +9,12 @@ from typing import Annotated
 
 import typer
 
+from second_brain.backup import create_backup, verify_backup
 from second_brain.bootstrap import initialize_vault
 from second_brain.config import load_config
 from second_brain.doctor import doctor
+from second_brain.ingest.egress import SourceEgressService
+from second_brain.ingest.security import TrustStore
 from second_brain.ingest.service import IngestionService, IngestResult
 from second_brain.ingest.watcher import InboxWatcher
 from second_brain.knowledge.compiler import KnowledgeCompiler
@@ -21,14 +24,17 @@ from second_brain.maintenance.monthly import MonthlyMaintenance
 from second_brain.maintenance.nightly import NightlyMaintenance
 from second_brain.maintenance.weekly import WeeklyMaintenance
 from second_brain.mcp.server import serve_stdio
+from second_brain.migration import migrate_phase2_runtime
 from second_brain.models import ProcessingState
 from second_brain.observability.status import brain_status
 from second_brain.paths import BrainPaths
+from second_brain.providers.smoke import provider_smoke
 from second_brain.rebuild import RebuildService
 from second_brain.review.service import ReviewService
 from second_brain.storage.sqlite import SQLiteStore
 from second_brain.transactions.manager import TransactionManager
 from second_brain.validation import validate_vault
+from second_brain.verification.consistency import ConsistencyVerifier
 from second_brain.verification.service import VerificationService
 
 app = typer.Typer(
@@ -38,9 +44,21 @@ app = typer.Typer(
 review_app = typer.Typer(help="Inspect and decide staged high-risk/ambiguous changes.", no_args_is_help=True)
 maintain_app = typer.Typer(help="Run idempotent maintenance routines.", no_args_is_help=True)
 mcp_app = typer.Typer(help="Expose policy-scoped brain tools over local MCP.", no_args_is_help=True)
+source_app = typer.Typer(help="Inspect and change per-source egress permissions.", no_args_is_help=True)
+trust_app = typer.Typer(help="Manage trusted local ingestion paths.", no_args_is_help=True)
+provider_app = typer.Typer(help="Inspect configured AI-provider readiness.", no_args_is_help=True)
+backup_app = typer.Typer(
+    help="Create and verify durable brain backups.",
+    invoke_without_command=True,
+    no_args_is_help=False,
+)
 app.add_typer(review_app, name="review")
 app.add_typer(maintain_app, name="maintain")
 app.add_typer(mcp_app, name="mcp")
+app.add_typer(source_app, name="source")
+app.add_typer(trust_app, name="trust")
+app.add_typer(provider_app, name="provider")
+app.add_typer(backup_app, name="backup")
 
 
 def _runtime() -> tuple[BrainPaths, SQLiteStore]:
@@ -221,6 +239,7 @@ def verify_command() -> None:
     report = validate_vault(paths.vault)
     findings = verify_source_integrity(store) if paths.db.exists() else []
     corrupt = [item for item in findings if not item.ok]
+    consistency = ConsistencyVerifier(paths, store).verify() if paths.db.exists() else None
     _json(
         {
             "vault_validation": {"ok": report.ok, "checked": report.checked, "errors": report.errors},
@@ -229,10 +248,26 @@ def verify_command() -> None:
                 "ok": len(corrupt) == 0,
                 "findings": [asdict(item) for item in corrupt],
             },
+            "canonical_consistency": (
+                {
+                    "ok": consistency.ok,
+                    "canonical_errors": [asdict(item) for item in consistency.canonical_errors],
+                    "generated_warnings": [asdict(item) for item in consistency.generated_warnings],
+                }
+                if consistency is not None
+                else {"ok": True, "canonical_errors": [], "generated_warnings": []}
+            ),
         }
     )
-    if not report.ok or corrupt:
+    if not report.ok or corrupt or (consistency is not None and not consistency.ok):
         raise typer.Exit(code=1)
+
+
+@app.command("migrate")
+def migrate_command() -> None:
+    """Idempotently upgrade older local runtime state into current durable Phase 2.5 ledgers."""
+    paths, store = _runtime()
+    _json(migrate_phase2_runtime(paths, store).to_dict())
 
 
 @app.command("rebuild")
@@ -245,6 +280,72 @@ def rebuild_command() -> None:
 def recover_command() -> None:
     """Rollback interrupted canonical operations from transaction history."""
     _json({"recovered": TransactionManager().recover_interrupted()})
+
+
+@source_app.command("show")
+def source_show(source_id: Annotated[str, typer.Argument()]) -> None:
+    """Show source egress/security state without exposing secret values."""
+    _json(SourceEgressService().show(source_id))
+
+
+@source_app.command("allow-cloud")
+def source_allow_cloud(source_id: Annotated[str, typer.Argument()]) -> None:
+    """Mark one already-preserved source cloud-eligible after a fresh secret scan."""
+    _json(SourceEgressService().allow_cloud(source_id))
+
+
+@source_app.command("local-only")
+def source_local_only(source_id: Annotated[str, typer.Argument()]) -> None:
+    """Explicitly deny cloud egress for one source."""
+    _json(SourceEgressService().local_only(source_id))
+
+
+@trust_app.command("list")
+def trust_list() -> None:
+    """List durable trusted ingestion paths."""
+    _json({"trusted_paths": TrustStore().list()})
+
+
+@trust_app.command("add")
+def trust_add(path: Annotated[Path, typer.Argument()]) -> None:
+    """Trust a path for cloud eligibility; secret scanning still has higher precedence."""
+    _json({"trusted_paths": TrustStore().add(path)})
+
+
+@trust_app.command("remove")
+def trust_remove(path: Annotated[Path, typer.Argument()]) -> None:
+    """Remove a trusted path."""
+    _json({"trusted_paths": TrustStore().remove(path)})
+
+
+@provider_app.command("test")
+def provider_test() -> None:
+    """Report provider/model/SDK/credential/health and a harmless structured smoke result."""
+    _json(provider_smoke(load_config(BrainPaths.discover())).to_dict())
+
+
+@backup_app.callback()
+def backup_default(ctx: typer.Context) -> None:
+    """Create a backup when invoked as `second-brain backup` with no subcommand."""
+    if ctx.invoked_subcommand is None:
+        path = create_backup(BrainPaths.discover())
+        _json({"backup": str(path), "verification": verify_backup(path).ok})
+
+
+@backup_app.command("create")
+def backup_create(destination: Annotated[Path | None, typer.Argument()] = None) -> None:
+    """Create a durable, hashed backup that excludes generated indexes/runtime state."""
+    path = create_backup(BrainPaths.discover(), destination)
+    _json({"backup": str(path), "verification": verify_backup(path).ok})
+
+
+@backup_app.command("verify")
+def backup_verify(path: Annotated[Path, typer.Argument()]) -> None:
+    """Verify manifest membership and SHA256 hashes for a backup archive."""
+    result = verify_backup(path)
+    _json({"ok": result.ok, "checked": result.checked, "errors": result.errors})
+    if not result.ok:
+        raise typer.Exit(code=1)
 
 
 @mcp_app.command("serve")

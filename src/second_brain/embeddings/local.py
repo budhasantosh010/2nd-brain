@@ -1,8 +1,8 @@
-"""Dependency-light local semantic hashing embeddings.
+"""Dependency-light local fuzzy hashing vectors.
 
-This is a rebuildable generated index, not canonical knowledge. It combines token and character
-n-gram features into a normalized fixed-size vector. It is intentionally local/offline and gives
-useful paraphrase/near-phrase similarity without requiring a heavyweight model download.
+This is deliberately *not* called a semantic embedding model. It combines token,
+bigram and character n-gram features into a deterministic normalized vector and
+remains a useful offline fallback when a learned local model is unavailable.
 """
 
 from __future__ import annotations
@@ -11,18 +11,28 @@ import hashlib
 import math
 import re
 
-from second_brain.embeddings.base import EmbeddingProvider
+from second_brain.embeddings.base import EmbeddingMetadata, EmbeddingProvider
 
 TOKEN = re.compile(r"[a-z0-9]+")
 
 
-class LocalEmbeddingProvider(EmbeddingProvider):
-    name = "local-hashing-v1"
+class HashingEmbeddingProvider(EmbeddingProvider):
+    name = "local-fuzzy-hashing-v1"
 
     def __init__(self, dimensions: int = 384) -> None:
         if dimensions < 64:
-            raise ValueError("Local embedding dimensions must be >= 64")
+            raise ValueError("Hashing vector dimensions must be >= 64")
         self.dimensions = dimensions
+
+    @property
+    def metadata(self) -> EmbeddingMetadata:
+        return EmbeddingMetadata(
+            provider=self.name,
+            model="token-bigram-trigram-hashing",
+            revision="1",
+            dimensions=self.dimensions,
+            learned=False,
+        )
 
     def embed(self, text: str) -> list[float]:
         vector = [0.0] * self.dimensions
@@ -47,6 +57,10 @@ class LocalEmbeddingProvider(EmbeddingProvider):
         if magnitude:
             return [value / magnitude for value in vector]
         return vector
+
+
+# Phase 1/2 compatibility. New code should use HashingEmbeddingProvider.
+LocalEmbeddingProvider = HashingEmbeddingProvider
 
 
 def cosine(left: list[float], right: list[float]) -> float:

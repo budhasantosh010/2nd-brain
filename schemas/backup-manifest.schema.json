@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "created_at": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "excluded_generated_prefixes": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "files": {
+      "additionalProperties": {
+        "pattern": "^[a-f0-9]{64}$",
+        "type": "string"
+      },
+      "type": "object"
+    },
+    "format_version": {
+      "const": "second-brain-backup-v1"
+    },
+    "schema_version": {
+      "type": "integer"
+    },
+    "vault_name": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "format_version",
+    "created_at",
+    "schema_version",
+    "vault_name",
+    "files",
+    "excluded_generated_prefixes"
+  ],
+  "title": "BackupManifest",
+  "type": "object"
+}

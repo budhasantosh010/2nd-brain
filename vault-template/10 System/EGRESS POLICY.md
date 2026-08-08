@@ -30,3 +30,7 @@ A cloud provider may be called only when all are true:
 5. only the smallest required content is sent.
 
 Local/Ollama-compatible providers are still untrusted software boundaries for sensitive deployments, but they do not count as cloud egress when configured to a local endpoint.
+<!-- PHASE25_FINAL -->
+## Phase 2.5 hardening
+
+Security precedence is blocked secret > sensitive > explicit local-only > explicit cloud allow > trusted AI Allowed path > default local-only. Trust never overrides a fresh secret scan.

@@ -14,10 +14,11 @@ import frontmatter
 import yaml
 
 from second_brain.config import BrainConfig, load_config
-from second_brain.embeddings.local import LocalEmbeddingProvider
-from second_brain.knowledge.contradiction import contradiction_candidate
+from second_brain.embeddings.factory import create_embedding_provider
+from second_brain.knowledge.contradiction import ConflictKind, assess_claim_pair, lexical_overlap
 from second_brain.knowledge.extractor import KnowledgeExtractor
-from second_brain.knowledge.linker import derived_from, supports
+from second_brain.knowledge.gaps import GapResolver
+from second_brain.knowledge.linker import derived_from, related_to, supports
 from second_brain.knowledge.matcher import ConceptMatcher, MatchAction
 from second_brain.models import (
     ClaimRecord,
@@ -35,10 +36,16 @@ from second_brain.models import (
 from second_brain.paths import BrainPaths
 from second_brain.providers import AIProvider, create_provider
 from second_brain.review.service import ReviewService
+from second_brain.storage.durable import (
+    CanonicalResolutionLedger,
+    ConceptResolution,
+    render_resolution,
+)
 from second_brain.storage.markdown import file_sha256
 from second_brain.storage.repository import BrainRepository
 from second_brain.storage.sqlite import SQLiteStore
 from second_brain.storage.vector import VectorStore
+from second_brain.transactions.db_mutations import DatabaseMutationPlan, DatabaseRowScope
 from second_brain.transactions.manager import TransactionManager
 from second_brain.transactions.plan import build_plan
 
@@ -77,7 +84,7 @@ class KnowledgeCompiler:
         self.repository = BrainRepository(self.store)
         self.vectors = VectorStore(
             self.store,
-            LocalEmbeddingProvider(self.config.embeddings.dimensions),
+            create_embedding_provider(self.config, self.paths),
         )
         self.provider = provider if provider is not None else create_provider(self.config)
         self.transactions = TransactionManager(self.paths, self.store)
@@ -131,24 +138,45 @@ class KnowledgeCompiler:
         db_claims: list[tuple[ClaimRecord, str | None]] = []
         db_entities: list[tuple[EntityRecord, str | None]] = []
         db_decisions: list[DecisionRecord] = []
+        superseded_decision_records: dict[str, DecisionRecord] = {}
         relationships: list[RelationshipRecord] = []
         conflicts_to_insert: list[tuple[str, str, str, str]] = []
         review_plans: list[tuple[OperationPlan, ConceptRecord, dict[str, object]]] = []
+        concept_resolutions: list[ConceptResolution] = []
 
         for concept in extraction.concepts:
             if source_id not in concept.source_ids:
                 concept.source_ids.append(source_id)
             match = self.matcher.match(concept)
-            if match.action in {MatchAction.NEW, MatchAction.UNRELATED}:
+            if match.action in {MatchAction.NEW, MatchAction.UNRELATED, MatchAction.RELATED}:
                 rel = self._concept_path(concept)
                 writes.append(PlannedWrite(path=rel, content=self._render_concept(concept)))
                 db_concepts.append((concept, rel))
                 relationships.append(derived_from(concept.id, source_id))
+                if match.action == MatchAction.RELATED and match.existing_id:
+                    relationships.append(related_to(concept.id, match.existing_id, source_id))
                 result.created_concepts.append(concept.id)
+                concept_resolutions.append(
+                    ConceptResolution(
+                        incoming_id=concept.id,
+                        canonical_id=concept.id,
+                        action="related" if match.action == MatchAction.RELATED else "created",
+                        evidence=[source_id],
+                    )
+                )
             elif match.action == MatchAction.DUPLICATE and match.existing_id:
                 relationships.append(derived_from(match.existing_id, source_id))
                 result.duplicate_concepts.append(match.existing_id)
+                concept_resolutions.append(
+                    ConceptResolution(
+                        incoming_id=concept.id,
+                        canonical_id=match.existing_id,
+                        action="duplicate",
+                        evidence=[source_id],
+                    )
+                )
             elif match.action == MatchAction.UPDATE and match.existing_id:
+                incoming_extracted_id = concept.id
                 existing = self.repository.concept_by_id(match.existing_id)
                 if existing is None:
                     continue
@@ -175,43 +203,88 @@ class KnowledgeCompiler:
                 )
                 proposal.metadata["concept_update"] = incoming.model_dump(mode="json")
                 proposal.metadata["note_path"] = note_path
+                proposal.metadata["resolution_source_id"] = source_id
+                proposal.metadata["resolution_incoming_id"] = incoming_extracted_id
+                proposal.metadata["resolution_canonical_id"] = match.existing_id
                 review_plans.append((proposal, incoming, existing))
+                relationships.append(derived_from(match.existing_id, source_id))
+                concept_resolutions.append(
+                    ConceptResolution(
+                        incoming_id=incoming_extracted_id,
+                        canonical_id=match.existing_id,
+                        action="review_pending",
+                        evidence=[source_id],
+                        review_operation_id=proposal.operation_id,
+                    )
+                )
 
         with self.store.connect() as conn:
             existing_claim_rows = conn.execute("SELECT id, statement FROM claims").fetchall()
+        existing_claims = {
+            str(row["id"]): str(row["statement"]) for row in existing_claim_rows
+        }
         incoming_claims_seen: list[ClaimRecord] = []
+        semantic_provider = self.vectors.embedding if self.vectors.profile.learned else None
+
+        def record_assessment(left_id: str, left: str, right: ClaimRecord) -> None:
+            assessment = assess_claim_pair(left, right.statement, provider=semantic_provider)
+            if assessment.kind == ConflictKind.CONFLICT:
+                conflict_id = f"CNF-{uuid4()}"
+                conflicts_to_insert.append(
+                    (conflict_id, left_id, right.id, assessment.reason)
+                )
+                relationships.append(
+                    RelationshipRecord(
+                        from_id=left_id,
+                        to_id=right.id,
+                        relation=RelationshipType.CONTRADICTS,
+                        source_id=source_id,
+                        provisional=True,
+                        metadata={
+                            "candidate_score": assessment.score,
+                            "reason": assessment.reason,
+                        },
+                    )
+                )
+            elif assessment.kind == ConflictKind.SUPERSESSION:
+                relationships.append(
+                    RelationshipRecord(
+                        from_id=right.id,
+                        to_id=left_id,
+                        relation=RelationshipType.SUPERSEDES,
+                        source_id=source_id,
+                        provisional=True,
+                        metadata={
+                            "temporal": True,
+                            "candidate_score": assessment.score,
+                            "reason": assessment.reason,
+                        },
+                    )
+                )
+
         for claim in extraction.claims:
             claim.source_id = source_id
-            for existing_claim in existing_claim_rows:
-                existing_id = str(existing_claim["id"])
-                existing_statement = str(existing_claim["statement"])
-                if contradiction_candidate(existing_statement, claim.statement):
-                    conflict_id = f"CNF-{uuid4()}"
-                    explanation = "Conservative contradiction candidate: high statement overlap with opposite negation; preserve both and require verification."
-                    conflicts_to_insert.append((conflict_id, existing_id, claim.id, explanation))
-                    relationships.append(
-                        RelationshipRecord(
-                            from_id=existing_id,
-                            to_id=claim.id,
-                            relation=RelationshipType.CONTRADICTS,
-                            source_id=source_id,
-                            provisional=True,
-                        )
+            candidate_ids = {
+                existing_id
+                for existing_id, statement in existing_claims.items()
+                if lexical_overlap(statement, claim.statement) >= 0.35
+            }
+            if self.vectors.profile.learned:
+                candidate_ids.update(
+                    hit.object_id
+                    for hit in self.vectors.search(
+                        claim.statement,
+                        limit=8,
+                        object_types={"claim"},
                     )
+                    if hit.score >= 0.55
+                )
+            for existing_id in sorted(candidate_ids):
+                existing_statement = existing_claims.get(existing_id)
+                if existing_statement is not None:
+                    record_assessment(existing_id, existing_statement, claim)
             for earlier_claim in incoming_claims_seen:
-                if contradiction_candidate(earlier_claim.statement, claim.statement):
-                    conflict_id = f"CNF-{uuid4()}"
-                    explanation = "Conservative contradiction candidate within one extracted source; preserve both statements for verification."
-                    conflicts_to_insert.append((conflict_id, earlier_claim.id, claim.id, explanation))
-                    relationships.append(
-                        RelationshipRecord(
-                            from_id=earlier_claim.id,
-                            to_id=claim.id,
-                            relation=RelationshipType.CONTRADICTS,
-                            source_id=source_id,
-                            provisional=True,
-                        )
-                    )
+                record_assessment(earlier_claim.id, earlier_claim.statement, claim)
             incoming_claims_seen.append(claim)
             materialized_path: str | None = None
             if claim.materialize:
@@ -235,40 +308,172 @@ class KnowledgeCompiler:
         for decision in extraction.decisions:
             if source_id not in decision.source_ids:
                 decision.source_ids.append(source_id)
+            if decision.supersedes:
+                with self.store.connect() as conn:
+                    predecessor = conn.execute(
+                        "SELECT * FROM decisions WHERE id=?",
+                        (decision.supersedes,),
+                    ).fetchone()
+                if predecessor is not None:
+                    try:
+                        predecessor_payload = json.loads(str(predecessor["metadata_json"] or "{}"))
+                        old_decision = DecisionRecord.model_validate(predecessor_payload)
+                    except (json.JSONDecodeError, ValueError, TypeError):
+                        old_decision = DecisionRecord(
+                            id=str(predecessor["id"]),
+                            project_id=str(predecessor["project_id"]) if predecessor["project_id"] else None,
+                            decision=str(predecessor["decision"]),
+                            context=str(predecessor["context"] or ""),
+                            reasoning=str(predecessor["reasoning"] or ""),
+                            status=str(predecessor["status"]),
+                            decided_at=(
+                                datetime.fromisoformat(str(predecessor["decided_at"]))
+                                if predecessor["decided_at"]
+                                else None
+                            ),
+                            supersedes=str(predecessor["supersedes"]) if predecessor["supersedes"] else None,
+                            superseded_by=str(predecessor["superseded_by"]) if predecessor["superseded_by"] else None,
+                        )
+                    old_decision.status = "superseded"
+                    old_decision.superseded_by = decision.id
+                    predecessor_rel = f"03 Knowledge/Decisions/{old_decision.id}.md"
+                    predecessor_path = self.paths.vault / predecessor_rel
+                    if predecessor_path.exists():
+                        writes.append(
+                            PlannedWrite(
+                                path=predecessor_rel,
+                                content=self._render_decision(old_decision),
+                                expected_hash=file_sha256(predecessor_path),
+                            )
+                        )
+                    superseded_decision_records[old_decision.id] = old_decision
             rel = f"03 Knowledge/Decisions/{decision.id}.md"
             writes.append(PlannedWrite(path=rel, content=self._render_decision(decision)))
             db_decisions.append(decision)
             relationships.append(derived_from(decision.id, source_id))
             result.decisions.append(decision.id)
 
-        ledger_rel = f".brain/ledgers/knowledge-{source_id}.json"
-        writes.append(
-            PlannedWrite(
-                path=ledger_rel,
-                content=json.dumps(
-                    {
-                        "source_id": source_id,
-                        "source_hash": str(source_row["content_hash"]),
-                        "schema": "knowledge-extraction-v1",
-                        "provider": self.provider.name if self.provider is not None else "none",
-                        "model": self.provider.model if self.provider is not None else "",
-                        "compiled_at": datetime.now(UTC).isoformat(),
-                        "extraction": extraction.model_dump(mode="json"),
-                    },
-                    indent=2,
-                    sort_keys=True,
+        open_loop_rows = [(f"LOP-{uuid4()}", loop) for loop in extraction.open_loops]
+        project_candidate_rows = [
+            (f"PCD-{uuid4()}", candidate) for candidate in extraction.project_candidates
+        ]
+        question_rows = [(f"QUE-{uuid4()}", question) for question in extraction.questions]
+
+        extraction_rel = f".brain/ledgers/extractions/{source_id}.json"
+        extraction_path = self.paths.vault / extraction_rel
+        if not extraction_path.exists():
+            writes.append(
+                PlannedWrite(
+                    path=extraction_rel,
+                    content=json.dumps(
+                        {
+                            "source_id": source_id,
+                            "source_hash": str(source_row["content_hash"]),
+                            "schema": "knowledge-extraction-v1",
+                            "provider": self.provider.name if self.provider is not None else "none",
+                            "model": self.provider.model if self.provider is not None else "",
+                            "compiled_at": datetime.now(UTC).isoformat(),
+                            "extraction": extraction.model_dump(mode="json"),
+                        },
+                        indent=2,
+                        sort_keys=True,
+                    )
+                    + "\n",
                 )
-                + "\n",
             )
+
+        resolution = CanonicalResolutionLedger(
+            source_id=source_id,
+            source_hash=str(source_row["content_hash"]),
+            concept_resolutions=concept_resolutions,
+            claims=[
+                {
+                    **claim.model_dump(mode="json"),
+                    "materialized_path": claim_note_path,
+                }
+                for claim, claim_note_path in db_claims
+            ],
+            entities=[
+                {**entity.model_dump(mode="json"), "note_path": entity_note_path}
+                for entity, entity_note_path in db_entities
+            ],
+            decisions=[decision.model_dump(mode="json") for decision in db_decisions],
+            relationships=[relation.model_dump(mode="json") for relation in relationships],
+            conflicts=[
+                {
+                    "id": conflict_id,
+                    "left_id": left_id,
+                    "right_id": right_id,
+                    "conflict_type": "claim-contradiction",
+                    "status": "open",
+                    "explanation": explanation,
+                    "source_id": source_id,
+                }
+                for conflict_id, left_id, right_id, explanation in conflicts_to_insert
+            ],
+            questions=[
+                {"id": question_id, "question": question, "source_id": source_id}
+                for question_id, question in question_rows
+            ],
+            open_loops=[
+                {
+                    "id": loop_id,
+                    "text": loop.text,
+                    "project_id": loop.project_id,
+                    "source_id": source_id,
+                    "status": loop.status,
+                }
+                for loop_id, loop in open_loop_rows
+            ],
+            project_candidates=[
+                {
+                    "id": candidate_id,
+                    **candidate.model_dump(mode="json"),
+                    "source_id": source_id,
+                }
+                for candidate_id, candidate in project_candidate_rows
+            ],
         )
+        resolution_rel = f".brain/ledgers/resolutions/{source_id}.json"
+        resolution_path = self.paths.vault / resolution_rel
+        if not resolution_path.exists():
+            writes.append(PlannedWrite(path=resolution_rel, content=render_resolution(resolution)))
+
+        ledger_rel = f".brain/ledgers/knowledge-{source_id}.json"
+        legacy_path = self.paths.vault / ledger_rel
+        if not legacy_path.exists():
+            writes.append(
+                PlannedWrite(
+                    path=ledger_rel,
+                    content=json.dumps(
+                        {
+                            "source_id": source_id,
+                            "source_hash": str(source_row["content_hash"]),
+                            "schema": "knowledge-extraction-v1",
+                            "provider": self.provider.name if self.provider is not None else "none",
+                            "model": self.provider.model if self.provider is not None else "",
+                            "compiled_at": datetime.now(UTC).isoformat(),
+                            "extraction": extraction.model_dump(mode="json"),
+                        },
+                        indent=2,
+                        sort_keys=True,
+                    )
+                    + "\n",
+                )
+            )
 
         source_record_rel = f"02 Sources/Records/{source_id}.md"
         source_record_path = self.paths.vault / source_record_rel
+        updated_source_record_content: str | None = None
         if source_record_path.exists():
+            updated_source_record_content = self._source_record_with_status(
+                source_record_path,
+                ProcessingState.COMPLETE,
+            )
             writes.append(
                 PlannedWrite(
                     path=source_record_rel,
-                    content=self._source_record_with_status(source_record_path, ProcessingState.COMPLETE),
+                    content=updated_source_record_content,
                     expected_hash=file_sha256(source_record_path),
                 )
             )
@@ -277,15 +482,189 @@ class KnowledgeCompiler:
             f"Compile validated knowledge from {source_id}", writes, permission_level=1
         )
 
+        scopes: list[DatabaseRowScope] = [
+            DatabaseRowScope(
+                table="sources",
+                where_sql="id = ?",
+                params=[source_id],
+                label=f"Compiled source {source_id}",
+            )
+        ]
+        for concept, _note_path in db_concepts:
+            scopes.append(DatabaseRowScope(table="concepts", where_sql="id = ?", params=[concept.id]))
+        for claim, _claim_note_path in db_claims:
+            scopes.append(DatabaseRowScope(table="claims", where_sql="id = ?", params=[claim.id]))
+        for entity, _entity_note_path in db_entities:
+            scopes.append(DatabaseRowScope(table="entities", where_sql="id = ?", params=[entity.id]))
+        decision_scope_ids: set[str] = set()
+        for decision in db_decisions:
+            decision_scope_ids.add(decision.id)
+            if decision.supersedes:
+                decision_scope_ids.add(decision.supersedes)
+        for decision_id in sorted(decision_scope_ids):
+            scopes.append(DatabaseRowScope(table="decisions", where_sql="id = ?", params=[decision_id]))
+        for relation in relationships:
+            scopes.append(DatabaseRowScope(table="relationships", where_sql="id = ?", params=[relation.id]))
+        for conflict_id, _left_id, _right_id, _explanation in conflicts_to_insert:
+            scopes.append(DatabaseRowScope(table="conflicts", where_sql="id = ?", params=[conflict_id]))
+        for loop_id, _loop in open_loop_rows:
+            scopes.append(DatabaseRowScope(table="open_loops", where_sql="id = ?", params=[loop_id]))
+        for candidate_id, _candidate in project_candidate_rows:
+            scopes.append(DatabaseRowScope(table="project_candidates", where_sql="id = ?", params=[candidate_id]))
+        for question_id, _question in question_rows:
+            scopes.append(DatabaseRowScope(table="questions", where_sql="id = ?", params=[question_id]))
+
+        indexed_ids = [
+            *(concept.id for concept, _ in db_concepts),
+            *(claim.id for claim, _ in db_claims),
+            *(entity.id for entity, _ in db_entities),
+            *(decision.id for decision in db_decisions),
+            *superseded_decision_records.keys(),
+        ]
+        fts_ids = list(indexed_ids)
+        if updated_source_record_content is not None:
+            fts_ids.append(source_id)
+        db_plan = DatabaseMutationPlan(
+            scopes=scopes,
+            fts_object_ids=fts_ids,
+            vector_object_ids=indexed_ids,
+            description=f"Compile canonical knowledge from {source_id}",
+        )
+
         def db_action(conn: sqlite3.Connection) -> None:
             for concept, note_path in db_concepts:
                 BrainRepository.upsert_concept_db(conn, concept, note_path)
+                concept_text = f"{concept.title}\n{concept.summary}"
+                self.store.index_text_in_connection(
+                    conn,
+                    object_id=concept.id,
+                    object_type="concept",
+                    title=concept.title,
+                    text=concept_text,
+                    source_id=source_id,
+                    locator=note_path,
+                )
+                self.vectors.upsert_in_connection(
+                    conn,
+                    object_id=concept.id,
+                    object_type="concept",
+                    title=concept.title,
+                    text=concept_text,
+                    source_id=source_id,
+                    metadata={
+                        "source_ids": concept.source_ids,
+                        "project_ids": concept.project_ids,
+                        "status": concept.status,
+                        "verification_state": concept.verification_state.value,
+                        "locator": note_path,
+                    },
+                )
             for claim, claim_note_path in db_claims:
                 BrainRepository.insert_claim_db(conn, claim, claim_note_path)
+                self.store.index_text_in_connection(
+                    conn,
+                    object_id=claim.id,
+                    object_type="claim",
+                    title="Claim",
+                    text=claim.statement,
+                    source_id=source_id,
+                    locator=claim_note_path,
+                )
+                self.vectors.upsert_in_connection(
+                    conn,
+                    object_id=claim.id,
+                    object_type="claim",
+                    title="Claim",
+                    text=claim.statement,
+                    source_id=source_id,
+                    metadata={
+                        "project_ids": claim.project_ids,
+                        "confidence_state": claim.confidence_state.value,
+                        "locator": claim_note_path or claim.source_locator,
+                    },
+                )
             for entity, entity_note_path in db_entities:
                 BrainRepository.insert_entity_db(conn, entity, entity_note_path)
+                entity_text = f"{entity.name}\n{entity.entity_type}"
+                self.store.index_text_in_connection(
+                    conn,
+                    object_id=entity.id,
+                    object_type="entity",
+                    title=entity.name,
+                    text=entity_text,
+                    source_id=source_id,
+                    locator=entity_note_path,
+                )
+                self.vectors.upsert_in_connection(
+                    conn,
+                    object_id=entity.id,
+                    object_type="entity",
+                    title=entity.name,
+                    text=entity_text,
+                    source_id=source_id,
+                    metadata={
+                        "project_ids": entity.project_ids,
+                        "entity_type": entity.entity_type,
+                        "locator": entity_note_path,
+                    },
+                )
             for decision in db_decisions:
                 BrainRepository.insert_decision_db(conn, decision)
+                decision_text = f"{decision.decision}\n{decision.reasoning}"
+                decision_path = f"03 Knowledge/Decisions/{decision.id}.md"
+                self.store.index_text_in_connection(
+                    conn,
+                    object_id=decision.id,
+                    object_type="decision",
+                    title="Decision",
+                    text=decision_text,
+                    source_id=source_id,
+                    locator=decision_path,
+                )
+                self.vectors.upsert_in_connection(
+                    conn,
+                    object_id=decision.id,
+                    object_type="decision",
+                    title="Decision",
+                    text=decision_text,
+                    source_id=source_id,
+                    metadata={
+                        "project_id": decision.project_id,
+                        "status": decision.status,
+                        "supersedes": decision.supersedes,
+                        "superseded_by": decision.superseded_by,
+                        "locator": decision_path,
+                    },
+                )
+                if decision.supersedes and decision.supersedes in superseded_decision_records:
+                    predecessor = superseded_decision_records[decision.supersedes]
+                    predecessor_text = f"{predecessor.decision}\n{predecessor.reasoning}"
+                    predecessor_path = f"03 Knowledge/Decisions/{predecessor.id}.md"
+                    predecessor_source = predecessor.source_ids[0] if predecessor.source_ids else None
+                    self.store.index_text_in_connection(
+                        conn,
+                        object_id=predecessor.id,
+                        object_type="decision",
+                        title="Decision",
+                        text=predecessor_text,
+                        source_id=predecessor_source,
+                        locator=predecessor_path,
+                    )
+                    self.vectors.upsert_in_connection(
+                        conn,
+                        object_id=predecessor.id,
+                        object_type="decision",
+                        title="Decision",
+                        text=predecessor_text,
+                        source_id=predecessor_source,
+                        metadata={
+                            "project_id": predecessor.project_id,
+                            "status": predecessor.status,
+                            "supersedes": predecessor.supersedes,
+                            "superseded_by": predecessor.superseded_by,
+                            "locator": predecessor_path,
+                        },
+                    )
             for relation in relationships:
                 BrainRepository.insert_relationship_db(conn, relation)
             for conflict_id, left_id, right_id, explanation in conflicts_to_insert:
@@ -303,128 +682,46 @@ class KnowledgeCompiler:
                         datetime.now(UTC).isoformat(),
                     ),
                 )
-            for loop in extraction.open_loops:
+            for loop_id, loop in open_loop_rows:
                 BrainRepository.insert_open_loop_db(
                     conn,
-                    loop_id=f"LOP-{uuid4()}",
+                    loop_id=loop_id,
                     text=loop.text,
                     project_id=loop.project_id,
                     source_id=source_id,
                 )
-            for candidate in extraction.project_candidates:
+            for candidate_id, candidate in project_candidate_rows:
                 BrainRepository.insert_project_candidate_db(
                     conn,
-                    candidate_id=f"PCD-{uuid4()}",
+                    candidate_id=candidate_id,
                     name=candidate.name,
                     rationale=candidate.rationale,
                     confidence_state=candidate.confidence_state.value,
                     source_id=source_id,
                 )
-            for question in extraction.questions:
+            for question_id, question in question_rows:
                 BrainRepository.insert_question_db(
                     conn,
-                    question_id=f"QUE-{uuid4()}",
+                    question_id=question_id,
                     question=question,
                     source_id=source_id,
                 )
-            conn.execute("UPDATE sources SET status = ? WHERE id = ?", (ProcessingState.COMPLETE.value, source_id))
+            conn.execute(
+                "UPDATE sources SET status = ? WHERE id = ?",
+                (ProcessingState.COMPLETE.value, source_id),
+            )
+            if updated_source_record_content is not None:
+                self.store.index_text_in_connection(
+                    conn,
+                    object_id=source_id,
+                    object_type="source-record",
+                    title=str(source_row["title"]),
+                    text=updated_source_record_content,
+                    source_id=source_id,
+                    locator="source record",
+                )
 
-        if writes or db_concepts or db_claims or db_entities or db_decisions or relationships or extraction.open_loops or extraction.project_candidates or extraction.questions:
-            self.transactions.apply(main_plan, db_action=db_action)
-        else:
-            with self.store.transaction() as conn:
-                db_action(conn)
-
-        for concept, note_path in db_concepts:
-            concept_text = f"{concept.title}\n{concept.summary}"
-            self.store.index_text(
-                object_id=concept.id,
-                object_type="concept",
-                title=concept.title,
-                text=concept_text,
-                source_id=source_id,
-                locator=note_path,
-            )
-            self.vectors.upsert(
-                object_id=concept.id,
-                object_type="concept",
-                title=concept.title,
-                text=concept_text,
-                source_id=source_id,
-                metadata={
-                    "project_ids": concept.project_ids,
-                    "status": concept.status,
-                    "verification_state": concept.verification_state.value,
-                    "locator": note_path,
-                },
-            )
-        for claim, claim_note_path in db_claims:
-            self.store.index_text(
-                object_id=claim.id,
-                object_type="claim",
-                title="Claim",
-                text=claim.statement,
-                source_id=source_id,
-                locator=claim_note_path,
-            )
-            self.vectors.upsert(
-                object_id=claim.id,
-                object_type="claim",
-                title="Claim",
-                text=claim.statement,
-                source_id=source_id,
-                metadata={
-                    "project_ids": claim.project_ids,
-                    "confidence_state": claim.confidence_state.value,
-                    "locator": claim_note_path or claim.source_locator,
-                },
-            )
-        for entity, entity_note_path in db_entities:
-            self.store.index_text(
-                object_id=entity.id,
-                object_type="entity",
-                title=entity.name,
-                text=f"{entity.name}\n{entity.entity_type}",
-                source_id=source_id,
-                locator=entity_note_path,
-            )
-            self.vectors.upsert(
-                object_id=entity.id,
-                object_type="entity",
-                title=entity.name,
-                text=f"{entity.name}\n{entity.entity_type}",
-                source_id=source_id,
-                metadata={
-                    "project_ids": entity.project_ids,
-                    "entity_type": entity.entity_type,
-                    "locator": entity_note_path,
-                },
-            )
-        for decision in extraction.decisions:
-            decision_text = f"{decision.decision}\n{decision.reasoning}"
-            decision_path = f"03 Knowledge/Decisions/{decision.id}.md"
-            self.store.index_text(
-                object_id=decision.id,
-                object_type="decision",
-                title="Decision",
-                text=decision_text,
-                source_id=source_id,
-                locator=decision_path,
-            )
-            self.vectors.upsert(
-                object_id=decision.id,
-                object_type="decision",
-                title="Decision",
-                text=decision_text,
-                source_id=source_id,
-                metadata={
-                    "project_id": decision.project_id,
-                    "status": decision.status,
-                    "supersedes": decision.supersedes,
-                    "superseded_by": decision.superseded_by,
-                    "locator": decision_path,
-                },
-            )
+        self.transactions.apply(main_plan, db_action=db_action, db_plan=db_plan)
 
         for proposal, incoming, existing in review_plans:
             item = self.reviews.stage(
@@ -446,6 +743,7 @@ class KnowledgeCompiler:
         result.questions = len(extraction.questions)
         result.state = ProcessingState.NEEDS_REVIEW if result.review_items else ProcessingState.COMPLETE
         result.message = "Validated knowledge compiled; risky meaning changes were staged." if result.review_items else "Validated knowledge compiled and indexed."
+        GapResolver(self.paths, self.store).recheck(source_ids=[source_id])
         return result
 
     def _cloud_egress_allowed(self, row: sqlite3.Row) -> bool:

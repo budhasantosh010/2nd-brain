@@ -29,3 +29,7 @@ Concept merges, canonical mass moves, hierarchy changes, identity reinterpretati
 ## No silent deletion
 
 Restructuring must not delete old knowledge merely because it appears stale or duplicate. Supersession, archive, merge provenance, or explicit human authorization preserves history and reversibility.
+<!-- PHASE25_FINAL -->
+## Phase 2.5 hardening
+
+Structural analysis may automatically refresh generated maps/indexes/links/dashboards. Advisory findings cannot auto-apply canonical meaning changes or deletions.

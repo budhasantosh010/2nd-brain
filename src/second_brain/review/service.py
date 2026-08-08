@@ -1,21 +1,32 @@
-"""Stage risky changes and apply/reject them through the transaction manager."""
+"""Stage risky changes and apply/reject them through reversible transactions."""
 
 from __future__ import annotations
 
 import json
+import sqlite3
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from second_brain.config import load_config
-from second_brain.embeddings.local import LocalEmbeddingProvider
+from second_brain.embeddings.factory import create_embedding_provider
 from second_brain.models import ConceptRecord, OperationPlan, PlannedWrite, ReviewItemModel
 from second_brain.paths import BrainPaths
 from second_brain.review.renderer import render_dashboard, render_review
+from second_brain.storage.durable import (
+    ProjectStateEvent,
+    append_jsonl_event,
+    read_jsonl,
+    read_resolution,
+    render_resolution,
+    update_concept_resolution,
+)
 from second_brain.storage.markdown import file_sha256
 from second_brain.storage.repository import BrainRepository
 from second_brain.storage.sqlite import SQLiteStore
 from second_brain.storage.vector import VectorStore
+from second_brain.transactions.db_mutations import DatabaseMutationPlan, DatabaseRowScope
 from second_brain.transactions.manager import TransactionManager
 from second_brain.transactions.plan import build_plan
 
@@ -34,7 +45,7 @@ class ReviewService:
         config = load_config(self.paths)
         self.vectors = VectorStore(
             self.store,
-            LocalEmbeddingProvider(config.embeddings.dimensions),
+            create_embedding_provider(config, self.paths),
         )
 
     def stage(
@@ -79,7 +90,7 @@ class ReviewService:
             permission_level=1,
         )
 
-        def db_action(conn):  # type: ignore[no-untyped-def]
+        def db_action(conn: sqlite3.Connection) -> None:
             conn.execute(
                 """
                 INSERT INTO review_items(
@@ -100,7 +111,11 @@ class ReviewService:
                 ),
             )
 
-        self.transactions.apply(stage_plan, db_action=db_action)
+        self.transactions.apply(
+            stage_plan,
+            db_action=db_action,
+            db_plan=self._review_item_db_plan(item.review_id, "Stage review item"),
+        )
         self.refresh_dashboard()
         return item
 
@@ -134,13 +149,25 @@ class ReviewService:
         if item.status != "pending":
             raise ValueError(f"Review item is not pending: {review_id} ({item.status})")
         plan = self._load_proposal(item.operation_id)
+        if bool(plan.metadata.get("advisory_only")):
+            raise ValueError(
+                "Advisory review proposals cannot auto-apply; create a concrete reversible operation after review."
+            )
+        resolution_write = self._resolution_write(
+            plan,
+            action="updated",
+            decision_operation_id=plan.operation_id,
+        )
+        if resolution_write is not None:
+            plan.writes.append(resolution_write)
 
-        def db_action(conn):  # type: ignore[no-untyped-def]
+        def db_action(conn: sqlite3.Connection) -> None:
             concept_payload = plan.metadata.get("concept_update")
             note_path = plan.metadata.get("note_path")
             if isinstance(concept_payload, dict) and isinstance(note_path, str):
                 concept = ConceptRecord.model_validate(concept_payload)
                 BrainRepository.upsert_concept_db(conn, concept, note_path)
+
             state_payload = plan.metadata.get("project_state_update")
             if isinstance(state_payload, dict):
                 project_id = str(state_payload.get("project_id", ""))
@@ -171,11 +198,16 @@ class ReviewService:
                         "UPDATE projects SET updated_at = ? WHERE id = ?",
                         (datetime.now(UTC).isoformat(), project_id),
                     )
+            self._refresh_indexes_db(conn, plan)
 
-        operation_id = self.transactions.apply(plan, db_action=db_action)
-        self._refresh_indexes(plan)
+        operation_id = self.transactions.apply(
+            plan,
+            db_action=db_action,
+            db_plan=self._proposal_db_plan(plan),
+        )
         item.status = "applied"
         item.decision = "approved"
+        self._append_project_state_event_from_plan(plan, operation_id=operation_id)
         self._persist_item_and_views(item)
         return operation_id
 
@@ -185,25 +217,118 @@ class ReviewService:
             raise ValueError(f"Review item is not pending: {review_id} ({item.status})")
         item.status = "rejected"
         item.decision = decision
-        self._persist_item_and_views(item)
+        proposal = self._load_proposal(item.operation_id)
+        resolution_write = self._resolution_write(
+            proposal,
+            action="rejected",
+            decision_operation_id=None,
+        )
+        self._persist_item_and_views(
+            item,
+            extra_writes=[resolution_write] if resolution_write is not None else None,
+        )
 
     def rollback(self, review_id: str) -> None:
         item = self.get(review_id)
         if item.status != "applied":
             raise ValueError(f"Only applied review items can be rolled back: {review_id}")
-        self.transactions.rollback(item.operation_id)
+        proposal = self._load_proposal(item.operation_id)
+        rollback_operation_id = self.transactions.rollback(item.operation_id)
+        self._append_project_rollback_event(proposal, rollback_operation_id)
         item.status = "rolled_back"
         item.decision = "approved then rolled back"
-        self._persist_item_and_views(item)
+        resolution_write = self._resolution_write(
+            proposal,
+            action="rolled_back",
+            decision_operation_id=rollback_operation_id,
+        )
+        self._persist_item_and_views(
+            item,
+            extra_writes=[resolution_write] if resolution_write is not None else None,
+        )
 
-    def _refresh_indexes(self, plan: OperationPlan) -> None:
+    def _proposal_db_plan(self, plan: OperationPlan) -> DatabaseMutationPlan:
+        scopes: list[DatabaseRowScope] = []
+        fts_object_ids: list[str] = []
+        vector_object_ids: list[str] = []
+
+        concept_payload = plan.metadata.get("concept_update")
+        if isinstance(concept_payload, dict):
+            concept_id = str(concept_payload.get("id", ""))
+            if concept_id:
+                scopes.extend(
+                    [
+                        DatabaseRowScope(
+                            table="concepts",
+                            where_sql="id = ?",
+                            params=[concept_id],
+                            label=f"Concept {concept_id}",
+                        ),
+                        DatabaseRowScope(
+                            table="relationships",
+                            where_sql="from_id = ? OR to_id = ?",
+                            params=[concept_id, concept_id],
+                            label=f"Relationships touching {concept_id}",
+                        ),
+                    ]
+                )
+                fts_object_ids.append(concept_id)
+                vector_object_ids.append(concept_id)
+
+        state_payload = plan.metadata.get("project_state_update")
+        if isinstance(state_payload, dict):
+            project_id = str(state_payload.get("project_id", ""))
+            if project_id:
+                scopes.extend(
+                    [
+                        DatabaseRowScope(
+                            table="projects",
+                            where_sql="id = ?",
+                            params=[project_id],
+                            label=f"Project {project_id}",
+                        ),
+                        DatabaseRowScope(
+                            table="project_states",
+                            where_sql="project_id = ?",
+                            params=[project_id],
+                            label=f"Project state history {project_id}",
+                        ),
+                    ]
+                )
+                state_id = f"PST-{project_id[4:]}"
+                fts_object_ids.append(state_id)
+                vector_object_ids.append(state_id)
+
+        return DatabaseMutationPlan(
+            scopes=scopes,
+            fts_object_ids=fts_object_ids,
+            vector_object_ids=vector_object_ids,
+            description=f"Reversible review approval: {plan.description}",
+        )
+
+    @staticmethod
+    def _review_item_db_plan(review_id: str, description: str) -> DatabaseMutationPlan:
+        return DatabaseMutationPlan(
+            scopes=[
+                DatabaseRowScope(
+                    table="review_items",
+                    where_sql="review_id = ?",
+                    params=[review_id],
+                    label=f"Review item {review_id}",
+                )
+            ],
+            description=description,
+        )
+
+    def _refresh_indexes_db(self, conn: sqlite3.Connection, plan: OperationPlan) -> None:
         concept_payload = plan.metadata.get("concept_update")
         note_path = plan.metadata.get("note_path")
         if isinstance(concept_payload, dict) and isinstance(note_path, str):
             concept = ConceptRecord.model_validate(concept_payload)
             text = f"{concept.title}\n{concept.summary}"
             source_id = concept.source_ids[0] if concept.source_ids else None
-            self.store.index_text(
+            self.store.index_text_in_connection(
+                conn,
                 object_id=concept.id,
                 object_type="concept",
                 title=concept.title,
@@ -211,7 +336,8 @@ class ReviewService:
                 source_id=source_id,
                 locator=note_path,
             )
-            self.vectors.upsert(
+            self.vectors.upsert_in_connection(
+                conn,
                 object_id=concept.id,
                 object_type="concept",
                 title=concept.title,
@@ -220,6 +346,7 @@ class ReviewService:
                 metadata={
                     "source_ids": concept.source_ids,
                     "project_ids": concept.project_ids,
+                    "status": concept.status,
                     "verification_state": concept.verification_state.value,
                     "locator": note_path,
                 },
@@ -231,10 +358,10 @@ class ReviewService:
         project_id = str(state_payload.get("project_id", ""))
         if not project_id:
             return
-        with self.store.connect() as conn:
-            project = conn.execute(
-                "SELECT title, project_path FROM projects WHERE id = ?", (project_id,)
-            ).fetchone()
+        project = conn.execute(
+            "SELECT title, project_path FROM projects WHERE id = ?",
+            (project_id,),
+        ).fetchone()
         if project is None:
             return
         title = str(project["title"])
@@ -249,7 +376,8 @@ class ReviewService:
         source_id = next((value for value in evidence_values if value.startswith("SRC-")), None)
         state_id = f"PST-{project_id[4:]}"
         locator = f"{project['project_path']}/STATE.md"
-        self.store.index_text(
+        self.store.index_text_in_connection(
+            conn,
             object_id=state_id,
             object_type="project-state",
             title=f"{title} — Current State",
@@ -257,7 +385,8 @@ class ReviewService:
             source_id=source_id,
             locator=locator,
         )
-        self.vectors.upsert(
+        self.vectors.upsert_in_connection(
+            conn,
             object_id=state_id,
             object_type="project-state",
             title=f"{title} — Current State",
@@ -286,32 +415,38 @@ class ReviewService:
         )
         self.transactions.apply(plan)
 
-    def _persist_item_and_views(self, item: ReviewItemModel) -> None:
+    def _persist_item_and_views(
+        self,
+        item: ReviewItemModel,
+        *,
+        extra_writes: Sequence[PlannedWrite] | None = None,
+    ) -> None:
         items = self.list()
         rendered_items = [item if current.review_id == item.review_id else current for current in items]
         note_rel = self._review_note_rel(item)
         note_path = self.paths.vault / note_rel
         dashboard_path = self.paths.vault / "00 Home" / "Needs Review.md"
+        writes = [
+            PlannedWrite(
+                path=note_rel,
+                content=render_review(item),
+                expected_hash=file_sha256(note_path) if note_path.exists() else None,
+            ),
+            PlannedWrite(
+                path="00 Home/Needs Review.md",
+                content=render_dashboard(rendered_items),
+                expected_hash=(file_sha256(dashboard_path) if dashboard_path.exists() else None),
+            ),
+        ]
+        if extra_writes:
+            writes.extend(extra_writes)
         plan = build_plan(
             f"Update review state {item.review_id}",
-            [
-                PlannedWrite(
-                    path=note_rel,
-                    content=render_review(item),
-                    expected_hash=file_sha256(note_path) if note_path.exists() else None,
-                ),
-                PlannedWrite(
-                    path="00 Home/Needs Review.md",
-                    content=render_dashboard(rendered_items),
-                    expected_hash=(
-                        file_sha256(dashboard_path) if dashboard_path.exists() else None
-                    ),
-                ),
-            ],
+            writes,
             permission_level=1,
         )
 
-        def db_action(conn):  # type: ignore[no-untyped-def]
+        def db_action(conn: sqlite3.Connection) -> None:
             conn.execute(
                 "UPDATE review_items SET status = ?, decision = ?, payload_json = ? WHERE review_id = ?",
                 (
@@ -322,7 +457,97 @@ class ReviewService:
                 ),
             )
 
-        self.transactions.apply(plan, db_action=db_action)
+        self.transactions.apply(
+            plan,
+            db_action=db_action,
+            db_plan=self._review_item_db_plan(
+                item.review_id,
+                f"Update review item {item.review_id}",
+            ),
+        )
+
+    def _append_project_state_event_from_plan(
+        self,
+        plan: OperationPlan,
+        *,
+        operation_id: str,
+    ) -> None:
+        payload = plan.metadata.get("project_state_event")
+        if not isinstance(payload, dict):
+            return
+        event = ProjectStateEvent.model_validate(payload)
+        event.operation_id = operation_id
+        path = self.paths.brain / "ledgers" / "projects" / f"{event.project_id}.jsonl"
+        append_jsonl_event(path, event.model_dump(mode="json"), event_id=event.event_id)
+
+    def _append_project_rollback_event(
+        self,
+        plan: OperationPlan,
+        rollback_operation_id: str,
+    ) -> None:
+        payload = plan.metadata.get("project_state_event")
+        if not isinstance(payload, dict):
+            return
+        applied_event = ProjectStateEvent.model_validate(payload)
+        path = self.paths.brain / "ledgers" / "projects" / f"{applied_event.project_id}.jsonl"
+        history = [ProjectStateEvent.model_validate(item) for item in read_jsonl(path)]
+        target_index = next(
+            (index for index, item in enumerate(history) if item.event_id == applied_event.event_id),
+            None,
+        )
+        if target_index is None or target_index == 0:
+            return
+        previous = history[target_index - 1]
+        compensating = ProjectStateEvent(
+            project_id=previous.project_id,
+            current_state=previous.current_state,
+            last_completed=previous.last_completed,
+            currently_working_on=previous.currently_working_on,
+            next_action=previous.next_action,
+            blockers=previous.blockers,
+            open_questions=previous.open_questions,
+            evidence=previous.evidence,
+            source_ids=previous.source_ids,
+            verified_at=previous.verified_at,
+            operation_id=rollback_operation_id,
+            status="rollback",
+            compensates_event_id=applied_event.event_id,
+        )
+        append_jsonl_event(
+            path,
+            compensating.model_dump(mode="json"),
+            event_id=compensating.event_id,
+        )
+
+    def _resolution_write(
+        self,
+        plan: OperationPlan,
+        *,
+        action: str,
+        decision_operation_id: str | None,
+    ) -> PlannedWrite | None:
+        source_id = plan.metadata.get("resolution_source_id")
+        incoming_id = plan.metadata.get("resolution_incoming_id")
+        canonical_id = plan.metadata.get("resolution_canonical_id")
+        if not all(isinstance(value, str) and value for value in (source_id, incoming_id, canonical_id)):
+            return None
+        relative = f".brain/ledgers/resolutions/{source_id}.json"
+        path = self.paths.vault / relative
+        ledger = read_resolution(path)
+        if ledger is None:
+            return None
+        updated = update_concept_resolution(
+            ledger,
+            incoming_id=str(incoming_id),
+            canonical_id=str(canonical_id),
+            action=action,
+            decision_operation_id=decision_operation_id,
+        )
+        return PlannedWrite(
+            path=relative,
+            content=render_resolution(updated),
+            expected_hash=file_sha256(path),
+        )
 
     def _load_proposal(self, operation_id: str) -> OperationPlan:
         path = self.paths.transactions / operation_id / "proposal.json"

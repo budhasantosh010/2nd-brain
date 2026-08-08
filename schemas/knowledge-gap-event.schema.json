@@ -1,0 +1,106 @@
+{
+  "properties": {
+    "answer": {
+      "default": "",
+      "title": "Answer",
+      "type": "string"
+    },
+    "event": {
+      "enum": [
+        "opened",
+        "candidate_evidence_found",
+        "resolved",
+        "reopened",
+        "dismissed"
+      ],
+      "title": "Event",
+      "type": "string"
+    },
+    "event_id": {
+      "title": "Event Id",
+      "type": "string"
+    },
+    "evidence": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Evidence",
+      "type": "array"
+    },
+    "found": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Found",
+      "type": "array"
+    },
+    "missing_evidence": {
+      "default": "",
+      "title": "Missing Evidence",
+      "type": "string"
+    },
+    "operation_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Operation Id"
+    },
+    "question": {
+      "title": "Question",
+      "type": "string"
+    },
+    "question_id": {
+      "title": "Question Id",
+      "type": "string"
+    },
+    "resolution_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Resolution Id"
+    },
+    "schema_version": {
+      "default": "knowledge-gap-event-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "searched": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Searched",
+      "type": "array"
+    },
+    "source_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Source Ids",
+      "type": "array"
+    },
+    "timestamp": {
+      "title": "Timestamp",
+      "type": "string"
+    }
+  },
+  "required": [
+    "question_id",
+    "question",
+    "event"
+  ],
+  "title": "KnowledgeGapEvent",
+  "type": "object"
+}

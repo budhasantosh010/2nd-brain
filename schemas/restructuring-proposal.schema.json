@@ -1,0 +1,73 @@
+{
+  "properties": {
+    "affected_files": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Affected Files",
+      "type": "array"
+    },
+    "affected_objects": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Affected Objects",
+      "type": "array"
+    },
+    "evidence": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Evidence",
+      "type": "array"
+    },
+    "expected_retrieval_benefit": {
+      "title": "Expected Retrieval Benefit",
+      "type": "string"
+    },
+    "finding_type": {
+      "title": "Finding Type",
+      "type": "string"
+    },
+    "generated_at": {
+      "title": "Generated At",
+      "type": "string"
+    },
+    "proposal_id": {
+      "title": "Proposal Id",
+      "type": "string"
+    },
+    "reason": {
+      "title": "Reason",
+      "type": "string"
+    },
+    "recommended_action": {
+      "title": "Recommended Action",
+      "type": "string"
+    },
+    "risks": {
+      "title": "Risks",
+      "type": "string"
+    },
+    "rollback_procedure": {
+      "title": "Rollback Procedure",
+      "type": "string"
+    },
+    "schema_version": {
+      "default": "restructuring-proposal-v1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "proposal_id",
+    "finding_type",
+    "reason",
+    "expected_retrieval_benefit",
+    "risks",
+    "rollback_procedure",
+    "recommended_action"
+  ],
+  "title": "RestructuringProposalModel",
+  "type": "object"
+}

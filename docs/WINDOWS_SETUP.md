@@ -58,3 +58,7 @@ Run:
 ```
 
 If the daemon lock remains after a crash, first confirm no daemon process is running. Use `second-brain recover` for interrupted canonical write transactions. Do not manually remove source evidence or database history as a first response.
+<!-- PHASE25_FINAL -->
+## Phase 2.5 Windows acceptance
+
+Windows paths containing spaces are supported. Release acceptance is run from the real repository path while `SECOND_BRAIN_VAULT` points to a disposable isolated vault. The acceptance sequence covers init/doctor/verify/status, daemon Inbox ingestion, stop/offline drop/restart missed-work recovery, a forced process death while holding a writer lock, backup create/verify, rebuild, MCP stdio and semantic-model execution. Never hard-crash test against a valuable populated brain.

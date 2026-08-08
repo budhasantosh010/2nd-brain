@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "capability": {
+      "enum": [
+        "ocr",
+        "vision",
+        "transcription"
+      ]
+    },
+    "limitations": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "provider": {
+      "type": "string"
+    },
+    "segments": {
+      "items": {
+        "properties": {
+          "confidence": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "locator": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "locator"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "source_id": {
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "enriched",
+        "needs_enrichment",
+        "unavailable"
+      ]
+    }
+  },
+  "required": [
+    "source_id",
+    "capability",
+    "provider",
+    "status"
+  ],
+  "title": "MultimodalEnrichment",
+  "type": "object"
+}

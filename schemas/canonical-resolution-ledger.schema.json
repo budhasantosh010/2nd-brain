@@ -1,0 +1,169 @@
+{
+  "$defs": {
+    "ConceptResolution": {
+      "properties": {
+        "action": {
+          "enum": [
+            "created",
+            "duplicate",
+            "updated",
+            "review_pending",
+            "rejected",
+            "rolled_back",
+            "related",
+            "conflict"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "canonical_id": {
+          "title": "Canonical Id",
+          "type": "string"
+        },
+        "decision_operation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Decision Operation Id"
+        },
+        "evidence": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
+        "incoming_id": {
+          "title": "Incoming Id",
+          "type": "string"
+        },
+        "review_operation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Review Operation Id"
+        }
+      },
+      "required": [
+        "incoming_id",
+        "canonical_id",
+        "action"
+      ],
+      "title": "ConceptResolution",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "claims": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Claims",
+      "type": "array"
+    },
+    "compiler_version": {
+      "default": "phase2.5-v1",
+      "title": "Compiler Version",
+      "type": "string"
+    },
+    "concept_resolutions": {
+      "items": {
+        "$ref": "#/$defs/ConceptResolution"
+      },
+      "title": "Concept Resolutions",
+      "type": "array"
+    },
+    "conflicts": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Conflicts",
+      "type": "array"
+    },
+    "decisions": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Decisions",
+      "type": "array"
+    },
+    "entities": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Entities",
+      "type": "array"
+    },
+    "open_loops": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Open Loops",
+      "type": "array"
+    },
+    "project_candidates": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Project Candidates",
+      "type": "array"
+    },
+    "questions": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Questions",
+      "type": "array"
+    },
+    "relationships": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Relationships",
+      "type": "array"
+    },
+    "resolved_at": {
+      "title": "Resolved At",
+      "type": "string"
+    },
+    "schema_version": {
+      "default": "canonical-resolution-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source_hash": {
+      "title": "Source Hash",
+      "type": "string"
+    },
+    "source_id": {
+      "title": "Source Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "source_id",
+    "source_hash"
+  ],
+  "title": "CanonicalResolutionLedger",
+  "type": "object"
+}

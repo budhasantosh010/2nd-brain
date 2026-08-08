@@ -30,8 +30,17 @@ class AIConfig(BaseModel):
 
 
 class EmbeddingsConfig(BaseModel):
-    provider: str = "local"
+    provider: str = "hashing"
+    model: str | None = None
+    revision: str = "fastembed-model-registry"
     dimensions: int = Field(default=384, ge=64, le=4096)
+    schema_version: str = "embedding-v2"
+
+
+class EnrichmentConfig(BaseModel):
+    ocr_provider: str = "none"
+    vision_provider: str = "none"
+    transcription_provider: str = "none"
 
 
 class RetrievalConfig(BaseModel):
@@ -63,6 +72,7 @@ class BrainConfig(BaseModel):
     ingestion: IngestionConfig = Field(default_factory=IngestionConfig)
     ai: AIConfig = Field(default_factory=AIConfig)
     embeddings: EmbeddingsConfig = Field(default_factory=EmbeddingsConfig)
+    enrichment: EnrichmentConfig = Field(default_factory=EnrichmentConfig)
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
     maintenance: MaintenanceConfig = Field(default_factory=MaintenanceConfig)
     security: SecurityConfig = Field(default_factory=SecurityConfig)
@@ -102,4 +112,10 @@ def load_config(paths: BrainPaths | None = None) -> BrainConfig:
     env_model = os.getenv("SECOND_BRAIN_AI_MODEL")
     if env_model:
         merged.setdefault("ai", {})["model"] = env_model
+    embedding_provider = os.getenv("SECOND_BRAIN_EMBEDDING_PROVIDER")
+    if embedding_provider:
+        merged.setdefault("embeddings", {})["provider"] = embedding_provider
+    embedding_model = os.getenv("SECOND_BRAIN_EMBEDDING_MODEL")
+    if embedding_model:
+        merged.setdefault("embeddings", {})["model"] = embedding_model
     return BrainConfig.model_validate(merged)

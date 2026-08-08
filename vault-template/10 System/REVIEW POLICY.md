@@ -33,3 +33,7 @@ Applied reviewed changes use the same operation history/backups as other canonic
 ## Dashboard
 
 `00 Home/Needs Review.md` is generated from pending review items. The user may approve/reject by CLI/MCP-safe workflow or by an explicit decision field that the daemon recognizes. The dashboard itself is a view, not the canonical review database.
+<!-- PHASE25_FINAL -->
+## Phase 2.5 hardening
+
+Advisory restructuring proposals require a separate concrete reversible operation before application. Approved meaning changes retain transaction and resolution history.

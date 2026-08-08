@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from second_brain.config import BrainConfig, load_config
-from second_brain.embeddings.local import LocalEmbeddingProvider
+from second_brain.embeddings.factory import create_embedding_provider
 from second_brain.models import QueryType, SearchHit
 from second_brain.paths import BrainPaths
 from second_brain.retrieval.context_builder import BuiltContext, ContextBuilder
@@ -44,7 +44,7 @@ class RetrievalService:
         self.config = config or load_config(self.paths)
         self.store = store or SQLiteStore(self.paths.db)
         self.store.initialize()
-        embedding = LocalEmbeddingProvider(self.config.embeddings.dimensions)
+        embedding = create_embedding_provider(self.config, self.paths)
         self.vectors = VectorStore(self.store, embedding)
         self.lexical = LexicalRetriever(self.store)
         self.semantic = SemanticRetriever(self.vectors)

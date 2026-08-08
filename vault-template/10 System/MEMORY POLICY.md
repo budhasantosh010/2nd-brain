@@ -29,3 +29,7 @@ Sources, operation ledgers, project histories, decisions, handoffs, and historic
 ## Retrieval implication
 
 Query type determines which memory class gets priority. Current-state questions should not be answered from old episodic snippets when newer project state exists. Historical questions should not discard old evidence because current state changed.
+<!-- PHASE25_FINAL -->
+## Phase 2.5 hardening
+
+Canonical resolution ledgers, project-state history and knowledge-gap history are durable memory. Raw provider extraction is not canonical resolution truth.

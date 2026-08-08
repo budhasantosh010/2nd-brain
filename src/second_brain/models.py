@@ -22,6 +22,7 @@ class ProcessingState(StrEnum):
     COMPLETE = "COMPLETE"
     DUPLICATE = "DUPLICATE"
     NEEDS_AI = "NEEDS_AI"
+    NEEDS_ENRICHMENT = "NEEDS_ENRICHMENT"
     NEEDS_REVIEW = "NEEDS_REVIEW"
     UNSUPPORTED = "UNSUPPORTED"
     FAILED = "FAILED"
@@ -197,6 +198,7 @@ class RelationshipRecord(BaseModel):
     relation: RelationshipType
     source_id: str | None = None
     provisional: bool = True
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class EvidenceItem(BaseModel):

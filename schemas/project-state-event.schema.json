@@ -1,0 +1,115 @@
+{
+  "properties": {
+    "blockers": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Blockers",
+      "type": "array"
+    },
+    "compensates_event_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Compensates Event Id"
+    },
+    "current_state": {
+      "title": "Current State",
+      "type": "string"
+    },
+    "currently_working_on": {
+      "default": "",
+      "title": "Currently Working On",
+      "type": "string"
+    },
+    "event_id": {
+      "title": "Event Id",
+      "type": "string"
+    },
+    "evidence": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Evidence",
+      "type": "array"
+    },
+    "last_completed": {
+      "default": "",
+      "title": "Last Completed",
+      "type": "string"
+    },
+    "next_action": {
+      "default": "",
+      "title": "Next Action",
+      "type": "string"
+    },
+    "open_questions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Open Questions",
+      "type": "array"
+    },
+    "operation_id": {
+      "title": "Operation Id",
+      "type": "string"
+    },
+    "project_id": {
+      "title": "Project Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "default": "project-state-event-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Source Ids",
+      "type": "array"
+    },
+    "status": {
+      "default": "applied",
+      "enum": [
+        "created",
+        "applied",
+        "rollback",
+        "recovered",
+        "migrated"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "timestamp": {
+      "title": "Timestamp",
+      "type": "string"
+    },
+    "verified_at": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Verified At"
+    }
+  },
+  "required": [
+    "project_id",
+    "current_state",
+    "operation_id"
+  ],
+  "title": "ProjectStateEvent",
+  "type": "object"
+}

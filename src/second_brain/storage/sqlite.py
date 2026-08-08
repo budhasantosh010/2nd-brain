@@ -209,12 +209,33 @@ class SQLiteStore:
         locator: str | None = None,
     ) -> None:
         with self.transaction() as conn:
-            conn.execute("DELETE FROM search_fts WHERE object_id = ?", (object_id,))
-            conn.execute(
-                "INSERT INTO search_fts(object_id, object_type, title, text, source_id, locator) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (object_id, object_type, title, text, source_id, locator),
+            self.index_text_in_connection(
+                conn,
+                object_id=object_id,
+                object_type=object_type,
+                title=title,
+                text=text,
+                source_id=source_id,
+                locator=locator,
             )
+
+    @staticmethod
+    def index_text_in_connection(
+        conn: sqlite3.Connection,
+        *,
+        object_id: str,
+        object_type: str,
+        title: str,
+        text: str,
+        source_id: str | None = None,
+        locator: str | None = None,
+    ) -> None:
+        conn.execute("DELETE FROM search_fts WHERE object_id = ?", (object_id,))
+        conn.execute(
+            "INSERT INTO search_fts(object_id, object_type, title, text, source_id, locator) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (object_id, object_type, title, text, source_id, locator),
+        )
 
     def search_fts(self, query: str, limit: int = 20) -> list[dict[str, Any]]:
         if not self.path.exists() or not query.strip():
@@ -226,7 +247,7 @@ class SQLiteStore:
                 SELECT object_id, object_type, title, text, source_id, locator, bm25(search_fts) AS rank
                 FROM search_fts
                 WHERE search_fts MATCH ?
-                ORDER BY rank
+                ORDER BY rank, object_id
                 LIMIT ?
                 """,
                 (expression, limit),

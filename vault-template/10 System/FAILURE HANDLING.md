@@ -40,3 +40,7 @@ Path traversal, unsafe symlink, archive escape, raw-source corruption, or secret
 ## User visibility
 
 Never reduce a failure to a generic `OK`/`failed` status when actionable detail exists. Status views summarize stage, reason, retry/next action, and affected source without exposing secrets.
+<!-- PHASE25_FINAL -->
+## Phase 2.5 hardening
+
+Interrupted APPLYING transactions and stale process locks must recover before daemon ownership. Multimodal capability absence preserves raw data and records NEEDS_ENRICHMENT rather than fake success.

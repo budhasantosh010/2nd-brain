@@ -5,11 +5,13 @@ import json
 import pytest
 
 from second_brain.exceptions import TransactionError
+from second_brain.locks import ProcessLockManager
 from second_brain.models import PlannedWrite
 from second_brain.paths import BrainPaths
 from second_brain.review.service import ReviewService
 from second_brain.storage.markdown import file_sha256
 from second_brain.storage.sqlite import SQLiteStore
+from second_brain.transactions.db_mutations import DatabaseMutationPlan, DatabaseRowScope
 from second_brain.transactions.manager import TransactionManager
 from second_brain.transactions.plan import build_plan
 
@@ -82,7 +84,19 @@ def test_database_failure_rolls_back_files_and_database_transaction(
         raise RuntimeError("synthetic db failure")
 
     with pytest.raises(TransactionError, match="rolled back"):
-        manager.apply(plan, db_action=db_action)
+        manager.apply(
+            plan,
+            db_action=db_action,
+            db_plan=DatabaseMutationPlan(
+                scopes=[
+                    DatabaseRowScope(
+                        table="questions",
+                        where_sql="id = ?",
+                        params=["QUE-rollback"],
+                    )
+                ]
+            ),
+        )
     assert target.read_text(encoding="utf-8") == "before\n"
     with store.connect() as conn:
         assert conn.execute("SELECT COUNT(*) FROM questions WHERE id='QUE-rollback'").fetchone()[0] == 0
@@ -91,17 +105,13 @@ def test_database_failure_rolls_back_files_and_database_transaction(
 def test_writer_lock_prevents_concurrent_canonical_mutation(
     isolated_brain: BrainPaths, store: SQLiteStore
 ) -> None:
-    lock = isolated_brain.locks / "writer.lock"
-    lock.write_text("synthetic lock", encoding="utf-8")
+    locks = ProcessLockManager(isolated_brain.locks, isolated_brain.brain / "ledgers")
     plan = build_plan(
         "concurrent write",
         [PlannedWrite(path="03 Knowledge/Concepts/blocked.md", content="blocked\n")],
     )
-    try:
-        with pytest.raises(TransactionError, match="writer lock"):
-            TransactionManager(isolated_brain, store).apply(plan)
-    finally:
-        lock.unlink(missing_ok=True)
+    with locks.acquire("writer"), pytest.raises(TransactionError, match="live pid"):
+        TransactionManager(isolated_brain, store).apply(plan)
     assert not (isolated_brain.vault / "03 Knowledge" / "Concepts" / "blocked.md").exists()
 
 

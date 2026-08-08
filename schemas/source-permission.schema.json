@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "changed_at": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "cloud_eligible": {
+      "type": "boolean"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "security_reasons": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "sensitivity": {
+      "enum": [
+        "local_only",
+        "cloud_allowed",
+        "sensitive",
+        "blocked"
+      ]
+    },
+    "source_id": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "source_id",
+    "sensitivity",
+    "cloud_eligible"
+  ],
+  "title": "SourcePermission",
+  "type": "object"
+}

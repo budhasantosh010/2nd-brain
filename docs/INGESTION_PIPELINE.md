@@ -43,3 +43,9 @@ A parser or downstream failure after preservation does not delete the raw source
 ## Integrity
 
 `second-brain verify` and maintenance integrity checks recompute source hashes. A changed raw source is reported as corruption, not accepted as an edit.
+<!-- PHASE25_FINAL -->
+## Phase 2.5 ingestion and enrichment
+
+Ingestion remains preserve-first: hash ? immutable raw copy ? manifest/source record ? deterministic parse ? index. Security classification occurs before any cloud path. Trusted Inbox policy is evaluated after secret/sensitive detection; `AI Allowed` cannot override a detected credential.
+
+Scanned PDFs, images and audio/video use capability interfaces (`OCRProvider`, `VisionProvider`, `TranscriptionProvider`). Available providers must return located segments (page or timestamp). If unavailable, ingestion still succeeds with raw bytes retained, state `NEEDS_ENRICHMENT`, and a specific required-capability next action.

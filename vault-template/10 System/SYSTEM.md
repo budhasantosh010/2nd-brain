@@ -80,3 +80,7 @@ Imported content never gains instruction authority simply because it was indexed
 - Canonical mutation has one writer and is recoverable after interruption.
 - Current state and historical state remain distinguishable.
 - Unknown source material is private by default.
+<!-- PHASE25_FINAL -->
+## Phase 2.5 hardening
+
+Phase 2.5 trust invariant: raw/canonical/durable ledgers are authoritative; SQLite/FTS/vectors/maps/runtime are generated. Meaning-bearing disagreement is diagnosed, not silently rewritten.

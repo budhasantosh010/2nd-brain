@@ -105,7 +105,12 @@ def test_pdf_is_preserved_and_scanned_pdf_need_is_explicit(
     writer.add_blank_page(width=300, height=300)
     with pdf_path.open("wb") as handle:
         writer.write(handle)
-    document = _assert_supported_ingest(_service(isolated_brain, store), pdf_path)
+    result = _service(isolated_brain, store).ingest_file(pdf_path)
+    assert result.state == ProcessingState.NEEDS_ENRICHMENT
+    assert result.raw_path is not None and result.raw_path.exists()
+    assert result.extracted_path is not None and result.extracted_path.exists()
+    assert sha256_file(pdf_path) == sha256_file(result.raw_path)
+    document = ParsedDocument.model_validate_json(result.extracted_path.read_text(encoding="utf-8"))
     assert document.metadata["scanned_likely"] is True
     assert document.metadata["requires_ocr"] is True
     source_record = isolated_brain.records / f"{document.source_id}.md"

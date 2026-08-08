@@ -106,3 +106,11 @@ Image description, OCR, and audio/video transcription require optional configure
 ## Phase 3
 
 A future Tauri/React app can use the same Markdown, SQLite, retrieval engine, transaction layer, and MCP/tool surface. No Phase 1/2 canonical data migration should be required.
+<!-- PHASE25_FINAL -->
+## Phase 2.5 — Trust & Intelligence Hardening
+
+Phase 2.5 completes the local-first trust layer without starting Phase 3. Canonical Markdown, SQLite, FTS and vector state are transactionally bounded; rollback uses compensating operations, rebuilds consume canonical resolution/project/gap ledgers, and process locks use PID + process-start identity. Fresh Phase 2.5 runtimes default to learned semantic retrieval through FastEmbed (`BAAI/bge-small-en-v1.5`, 384 dimensions); the accurately named hashing provider remains an explicit no-download fuzzy fallback.
+
+Operational commands added or hardened: `second-brain migrate`, `second-brain verify`, `second-brain doctor`, `second-brain provider test`, `second-brain backup create`, `second-brain backup verify`, `second-brain source show|allow-cloud|local-only`, `second-brain trust list|add|remove`, and `second-brain mcp serve`. Cloud AI remains disabled by default. `01 Inbox/AI Allowed/` only makes clean sources eligible; detected secrets/sensitive material always wins and remains local/blocked. Multimodal sources are preserved even when OCR, vision or transcription is unavailable and are marked `NEEDS_ENRICHMENT` with a clear next action.
+
+High-risk restructuring is advisory/review-gated. Grounded ask uses verified evidence first and validates generated claims against a bounded evidence pack; invalid synthesis falls back to the extractive answer or a grounded refusal. Durable backup excludes generated SQLite/FTS/vector/cache/lock state because those artifacts are rebuildable.

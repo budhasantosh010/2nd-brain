@@ -48,3 +48,7 @@ If the desktop app needs a process boundary, factor the existing Python services
 - Add OCR/transcription/vision adapters behind existing optional capability flags.
 - Add richer verified answer synthesis only if output remains evidence-checked.
 - Improve review UX from Markdown/dashboard to native controls without changing operation bundles.
+<!-- PHASE25_FINAL -->
+## Phase 2.5 boundary before Phase 3
+
+Do not begin Phase 3 until the Phase 2.5 hardening branch has passed independent review. Phase 3 must treat the Phase 2.5 durable ledgers, rollback/rebuild invariants, security precedence, grounded synthesis validator, backup format and MCP contracts as compatibility boundaries. No Phase 3 functionality is introduced by the hardening branch.

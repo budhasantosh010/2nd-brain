@@ -33,3 +33,7 @@ Exact full-SHA256 duplicate → record duplicate observation, do not create anot
 Derived extracted text must identify the source, parser, parser version where practical, extraction time, and locators. Locators should preserve navigation such as PDF page, slide, spreadsheet range, text lines, document heading/paragraph, HTML section, email field/body, or audio/video timestamp.
 
 If extraction is incomplete—such as a scanned PDF without OCR—record that limitation explicitly. Never mark extraction successful merely because preservation succeeded.
+<!-- PHASE25_FINAL -->
+## Phase 2.5 hardening
+
+Raw source bytes and source manifests are durable. AI Allowed Inbox content is merely cloud-eligible after scanning; Local Only remains local.
