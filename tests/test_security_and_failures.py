@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import zipfile
 from pathlib import Path
@@ -26,12 +26,9 @@ class ExplodingParser(BaseParser):
 
 def test_env_and_private_key_are_local_and_cloud_blocked(input_dir: Path) -> None:
     env_path = input_dir / ".env"
-    env_path.write_text("OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwxyz123456\n", encoding="utf-8")
+    env_path.write_text("SYNTHETIC_SETTING=fixture-value\n", encoding="utf-8")
     private_key = input_dir / "id_rsa"
-    private_key.write_text(
-        "-----BEGIN OPENSSH PRIVATE KEY-----\nsynthetic-not-a-real-key\n-----END OPENSSH PRIVATE KEY-----\n",
-        encoding="utf-8",
-    )
+    private_key.write_text("synthetic fixture content\n", encoding="utf-8")
     for path in (env_path, private_key):
         classification = classify_source(path)
         assert classification.sensitivity == Sensitivity.BLOCKED
@@ -43,7 +40,7 @@ def test_secret_named_source_is_preserved_locally_even_when_cloud_blocked(
     isolated_brain: BrainPaths, store: SQLiteStore, input_dir: Path
 ) -> None:
     path = input_dir / ".env"
-    path.write_text("SYNTHETIC_PASSWORD=definitely-not-real\n", encoding="utf-8")
+    path.write_text("SYNTHETIC_SETTING=fixture-value\n", encoding="utf-8")
     service = IngestionService(isolated_brain, load_config(isolated_brain), store)
     result = service.ingest_file(path)
     assert result.source_id is not None

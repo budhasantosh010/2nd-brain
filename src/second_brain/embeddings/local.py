@@ -31,7 +31,7 @@ class LocalEmbeddingProvider(EmbeddingProvider):
         features: list[tuple[str, float]] = []
         for token in tokens:
             features.append((f"tok:{token}", 2.0))
-        for left, right in zip(tokens, tokens[1:]):
+        for left, right in zip(tokens, tokens[1:], strict=False):
             features.append((f"bigram:{left}_{right}", 1.5))
         compact = normalized.replace(" ", "_")
         for index in range(max(0, len(compact) - 2)):
@@ -52,4 +52,4 @@ class LocalEmbeddingProvider(EmbeddingProvider):
 def cosine(left: list[float], right: list[float]) -> float:
     if len(left) != len(right) or not left:
         return 0.0
-    return sum(a * b for a, b in zip(left, right))
+    return sum(a * b for a, b in zip(left, right, strict=True))
