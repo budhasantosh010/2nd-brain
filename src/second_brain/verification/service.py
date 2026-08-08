@@ -7,6 +7,7 @@ import re
 from datetime import UTC, datetime
 from uuid import uuid4
 
+from second_brain.config import BrainConfig, load_config
 from second_brain.models import (
     BrainAnswer,
     EvidenceItem,
@@ -16,12 +17,15 @@ from second_brain.models import (
     VerificationState,
 )
 from second_brain.paths import BrainPaths
+from second_brain.providers import create_provider
+from second_brain.providers.base import AIProvider
 from second_brain.retrieval.service import RetrievalService
 from second_brain.storage.durable import KnowledgeGapEvent, append_jsonl_event
 from second_brain.storage.sqlite import SQLiteStore
 from second_brain.transactions.manager import TransactionManager
 from second_brain.transactions.plan import build_plan
 from second_brain.verification.evidence import evidence_from_hit
+from second_brain.verification.synthesis import GroundedSynthesizer
 
 REFUSAL = "I cannot verify this from the current brain."
 EXACT_TOKEN_PATTERN = re.compile(
@@ -35,11 +39,15 @@ class VerificationService:
         paths: BrainPaths | None = None,
         store: SQLiteStore | None = None,
         retrieval: RetrievalService | None = None,
+        config: BrainConfig | None = None,
+        provider: AIProvider | None = None,
     ) -> None:
         self.paths = paths or BrainPaths.discover()
         self.store = store or SQLiteStore(self.paths.db)
         self.store.initialize()
-        self.retrieval = retrieval or RetrievalService(self.paths, store=self.store)
+        self.config = config or load_config(self.paths)
+        self.retrieval = retrieval or RetrievalService(self.paths, config=self.config, store=self.store)
+        self.provider = provider if provider is not None else create_provider(self.config)
         self.transactions = TransactionManager(self.paths, self.store)
 
     def ask(
@@ -51,7 +59,25 @@ class VerificationService:
     ) -> BrainAnswer:
         query_type = self.retrieval.classify(question)
         hits = self.retrieval.search(question, project_id=project_id, limit=limit)
-        return self.answer_from_hits(question, hits, query_type=query_type)
+        base = self.answer_from_hits(question, hits, query_type=query_type)
+        if base.answer == REFUSAL or self.provider is None:
+            return base
+        usable_hits = self._usable_hits(hits, query_type)
+        if not usable_hits or not self._provider_allowed(base.evidence):
+            return base
+        try:
+            health = self.provider.health_check()
+            if not health.available:
+                return base
+            synthesized = GroundedSynthesizer(self.provider).synthesize(
+                question,
+                base,
+                usable_hits,
+                evidence_id_exists=self._evidence_id_exists,
+            )
+        except Exception:
+            return base
+        return synthesized or base
 
     def answer_from_hits(
         self,
@@ -211,6 +237,58 @@ class VerificationService:
             permission_level=1,
         )
         self.transactions.apply(plan)
+
+    def _usable_hits(self, hits: list[SearchHit], query_type: QueryType) -> list[SearchHit]:
+        usable: list[SearchHit] = []
+        for hit in hits:
+            item, _warnings = evidence_from_hit(self.store, hit, query_type)
+            if item is None:
+                continue
+            if (
+                item.verification_state in {VerificationState.STALE, VerificationState.CONTRADICTED}
+                and query_type != QueryType.HISTORICAL
+            ):
+                continue
+            usable.append(hit)
+        return usable
+
+    def _provider_allowed(self, evidence: list[EvidenceItem]) -> bool:
+        if self.provider is None:
+            return False
+        if not self.provider.is_cloud:
+            return True
+        if not self.config.ai.allow_cloud_ai:
+            return False
+        source_ids = {item.source_id for item in evidence}
+        if not source_ids:
+            return False
+        with self.store.connect() as conn:
+            for source_id in source_ids:
+                row = conn.execute("SELECT sensitivity FROM sources WHERE id=?", (source_id,)).fetchone()
+                if row is None or str(row["sensitivity"]) != "cloud_allowed":
+                    return False
+        return True
+
+    def _evidence_id_exists(self, object_id: str) -> bool:
+        with self.store.connect() as conn:
+            if conn.execute(
+                "SELECT 1 FROM source_segments WHERE segment_id=? LIMIT 1", (object_id,)
+            ).fetchone() is not None:
+                return True
+            for table in (
+                "sources",
+                "concepts",
+                "claims",
+                "entities",
+                "projects",
+                "decisions",
+                "skills",
+            ):
+                if conn.execute(
+                    f"SELECT 1 FROM {table} WHERE id=? LIMIT 1", (object_id,)
+                ).fetchone() is not None:
+                    return True
+        return False
 
     def _conflicts_for(self, object_ids: list[str]) -> list[str]:
         if not object_ids:
