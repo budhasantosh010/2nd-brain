@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import sqlite3
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any
@@ -12,6 +13,7 @@ from second_brain.models import PlannedWrite
 from second_brain.paths import BrainPaths
 from second_brain.storage.markdown import file_sha256
 from second_brain.storage.sqlite import SQLiteStore
+from second_brain.transactions.db_mutations import DatabaseMutationPlan
 from second_brain.transactions.manager import TransactionManager
 from second_brain.transactions.plan import build_plan
 
@@ -52,6 +54,7 @@ class MarkdownGraphMaterializer:
             adjacency[edge.right].append((inverse, edge.left))
 
         writes: list[PlannedWrite] = []
+        source_fts_updates: dict[str, tuple[ObjectRef, str]] = {}
         broken_links = 0
         for object_id, relations in sorted(adjacency.items()):
             ref = refs.get(object_id)
@@ -85,14 +88,36 @@ class MarkdownGraphMaterializer:
                         expected_hash=file_sha256(path),
                     )
                 )
+                if ref.source_id == object_id and ref.note_path.startswith("02 Sources/Records/"):
+                    source_fts_updates[object_id] = (ref, updated)
 
         if writes:
+            def db_action(conn: sqlite3.Connection) -> None:
+                for source_id, (ref, content) in source_fts_updates.items():
+                    self.store.index_text_in_connection(
+                        conn,
+                        object_id=source_id,
+                        object_type="source-record",
+                        title=ref.label,
+                        text=content,
+                        source_id=source_id,
+                        locator="source record",
+                    )
+
+            db_plan = DatabaseMutationPlan(
+                scopes=[],
+                fts_object_ids=sorted(source_fts_updates),
+                vector_object_ids=[],
+                description="Refresh source-record FTS after relationship materialization",
+            )
             self.transactions.apply(
                 build_plan(
                     "Materialize structured relationships into Obsidian notes",
                     writes,
                     permission_level=1,
-                )
+                ),
+                db_action=db_action if source_fts_updates else None,
+                db_plan=db_plan if source_fts_updates else None,
             )
         return {"notes_updated": len(writes), "edges": len(edges), "broken_links": broken_links}
 

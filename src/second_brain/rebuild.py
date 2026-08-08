@@ -280,27 +280,55 @@ class RebuildService:
                 raise ValueError(f"Cannot rebuild decision supersession graph; missing predecessors: {missing}")
 
         for decision_id, decision in decisions.items():
-            decision_source_id = decision_sources.get(decision_id)
-            text, locator = self._canonical_decision_text(decision)
+            decision_source_id = (
+                decision.source_ids[0]
+                if decision.source_ids
+                else decision_sources.get(decision_id)
+            )
+            with store.connect() as conn:
+                final_row = conn.execute(
+                    "SELECT status,supersedes,superseded_by FROM decisions WHERE id=?",
+                    (decision_id,),
+                ).fetchone()
+            final_decision = (
+                decision.model_copy(
+                    update={
+                        "status": str(final_row["status"]),
+                        "supersedes": (
+                            str(final_row["supersedes"])
+                            if final_row["supersedes"]
+                            else None
+                        ),
+                        "superseded_by": (
+                            str(final_row["superseded_by"])
+                            if final_row["superseded_by"]
+                            else None
+                        ),
+                    }
+                )
+                if final_row is not None
+                else decision
+            )
+            text, locator = self._canonical_decision_text(final_decision)
             store.index_text(
-                object_id=decision.id,
+                object_id=final_decision.id,
                 object_type="decision",
                 title="Decision",
                 text=text,
-                source_id=source_id,
+                source_id=decision_source_id,
                 locator=locator,
             )
             vectors.upsert(
-                object_id=decision.id,
+                object_id=final_decision.id,
                 object_type="decision",
                 title="Decision",
                 text=text,
                 source_id=decision_source_id,
                 metadata={
-                    "project_id": decision.project_id,
-                    "status": decision.status,
-                    "supersedes": decision.supersedes,
-                    "superseded_by": decision.superseded_by,
+                    "project_id": final_decision.project_id,
+                    "status": final_decision.status,
+                    "supersedes": final_decision.supersedes,
+                    "superseded_by": final_decision.superseded_by,
                     "locator": locator,
                 },
             )

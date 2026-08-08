@@ -138,6 +138,7 @@ class KnowledgeCompiler:
         db_claims: list[tuple[ClaimRecord, str | None]] = []
         db_entities: list[tuple[EntityRecord, str | None]] = []
         db_decisions: list[DecisionRecord] = []
+        superseded_decision_records: dict[str, DecisionRecord] = {}
         relationships: list[RelationshipRecord] = []
         conflicts_to_insert: list[tuple[str, str, str, str]] = []
         review_plans: list[tuple[OperationPlan, ConceptRecord, dict[str, object]]] = []
@@ -307,6 +308,45 @@ class KnowledgeCompiler:
         for decision in extraction.decisions:
             if source_id not in decision.source_ids:
                 decision.source_ids.append(source_id)
+            if decision.supersedes:
+                with self.store.connect() as conn:
+                    predecessor = conn.execute(
+                        "SELECT * FROM decisions WHERE id=?",
+                        (decision.supersedes,),
+                    ).fetchone()
+                if predecessor is not None:
+                    try:
+                        predecessor_payload = json.loads(str(predecessor["metadata_json"] or "{}"))
+                        old_decision = DecisionRecord.model_validate(predecessor_payload)
+                    except (json.JSONDecodeError, ValueError, TypeError):
+                        old_decision = DecisionRecord(
+                            id=str(predecessor["id"]),
+                            project_id=str(predecessor["project_id"]) if predecessor["project_id"] else None,
+                            decision=str(predecessor["decision"]),
+                            context=str(predecessor["context"] or ""),
+                            reasoning=str(predecessor["reasoning"] or ""),
+                            status=str(predecessor["status"]),
+                            decided_at=(
+                                datetime.fromisoformat(str(predecessor["decided_at"]))
+                                if predecessor["decided_at"]
+                                else None
+                            ),
+                            supersedes=str(predecessor["supersedes"]) if predecessor["supersedes"] else None,
+                            superseded_by=str(predecessor["superseded_by"]) if predecessor["superseded_by"] else None,
+                        )
+                    old_decision.status = "superseded"
+                    old_decision.superseded_by = decision.id
+                    predecessor_rel = f"03 Knowledge/Decisions/{old_decision.id}.md"
+                    predecessor_path = self.paths.vault / predecessor_rel
+                    if predecessor_path.exists():
+                        writes.append(
+                            PlannedWrite(
+                                path=predecessor_rel,
+                                content=self._render_decision(old_decision),
+                                expected_hash=file_sha256(predecessor_path),
+                            )
+                        )
+                    superseded_decision_records[old_decision.id] = old_decision
             rel = f"03 Knowledge/Decisions/{decision.id}.md"
             writes.append(PlannedWrite(path=rel, content=self._render_decision(decision)))
             db_decisions.append(decision)
@@ -479,6 +519,7 @@ class KnowledgeCompiler:
             *(claim.id for claim, _ in db_claims),
             *(entity.id for entity, _ in db_entities),
             *(decision.id for decision in db_decisions),
+            *superseded_decision_records.keys(),
         ]
         fts_ids = list(indexed_ids)
         if updated_source_record_content is not None:
@@ -595,6 +636,35 @@ class KnowledgeCompiler:
                         "locator": decision_path,
                     },
                 )
+                if decision.supersedes and decision.supersedes in superseded_decision_records:
+                    predecessor = superseded_decision_records[decision.supersedes]
+                    predecessor_text = f"{predecessor.decision}\n{predecessor.reasoning}"
+                    predecessor_path = f"03 Knowledge/Decisions/{predecessor.id}.md"
+                    predecessor_source = predecessor.source_ids[0] if predecessor.source_ids else None
+                    self.store.index_text_in_connection(
+                        conn,
+                        object_id=predecessor.id,
+                        object_type="decision",
+                        title="Decision",
+                        text=predecessor_text,
+                        source_id=predecessor_source,
+                        locator=predecessor_path,
+                    )
+                    self.vectors.upsert_in_connection(
+                        conn,
+                        object_id=predecessor.id,
+                        object_type="decision",
+                        title="Decision",
+                        text=predecessor_text,
+                        source_id=predecessor_source,
+                        metadata={
+                            "project_id": predecessor.project_id,
+                            "status": predecessor.status,
+                            "supersedes": predecessor.supersedes,
+                            "superseded_by": predecessor.superseded_by,
+                            "locator": predecessor_path,
+                        },
+                    )
             for relation in relationships:
                 BrainRepository.insert_relationship_db(conn, relation)
             for conflict_id, left_id, right_id, explanation in conflicts_to_insert:

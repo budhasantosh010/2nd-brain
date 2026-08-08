@@ -30,6 +30,7 @@ class GraphRetriever:
                         """
                         SELECT * FROM relationships
                         WHERE from_id = ? OR to_id = ?
+                        ORDER BY id
                         """,
                         (object_id, object_id),
                     ).fetchall()

@@ -55,6 +55,8 @@ ADVERSARIAL_NEGATIVES = (
 @dataclass(frozen=True, slots=True)
 class BenchmarkMetrics:
     recall_at_k: float
+    recall_at_3: float
+    recall_at_5: float
     mrr: float
     cases: int
 
@@ -70,6 +72,8 @@ def semantic_paraphrase_benchmark(
     vectors = provider.embed_batch(documents)
     query_vectors = provider.embed_batch([case.query for case in SEMANTIC_PARAPHRASE_CASES])
     hits = 0
+    hits_at_3 = 0
+    hits_at_5 = 0
     reciprocal_rank = 0.0
     for expected_index, query_vector in enumerate(query_vectors):
         ranking = sorted(
@@ -79,10 +83,16 @@ def semantic_paraphrase_benchmark(
         rank = ranking.index(expected_index) + 1
         if rank <= k:
             hits += 1
+        if rank <= 3:
+            hits_at_3 += 1
+        if rank <= 5:
+            hits_at_5 += 1
         reciprocal_rank += 1.0 / rank
     count = len(SEMANTIC_PARAPHRASE_CASES)
     return BenchmarkMetrics(
         recall_at_k=hits / count,
+        recall_at_3=hits_at_3 / count,
+        recall_at_5=hits_at_5 / count,
         mrr=reciprocal_rank / count,
         cases=count,
     )
