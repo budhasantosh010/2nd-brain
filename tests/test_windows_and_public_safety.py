@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 REQUIRED_WINDOWS_SCRIPTS = {
     "setup_windows.ps1",
@@ -24,6 +27,9 @@ def test_required_windows_scripts_exist_and_preserve_vault() -> None:
 
 
 def test_windows_scripts_parse_in_powershell() -> None:
+    powershell = shutil.which("powershell.exe") or shutil.which("pwsh")
+    if powershell is None:
+        pytest.skip("PowerShell is unavailable on this CI runner")
     root = Path(__file__).resolve().parents[1]
     paths = [root / "scripts" / name for name in sorted(REQUIRED_WINDOWS_SCRIPTS)]
     quoted = ",".join("'" + str(path).replace("'", "''") + "'" for path in paths)
@@ -36,7 +42,7 @@ def test_windows_scripts_parse_in_powershell() -> None:
         "if($failed){exit 1}"
     )
     completed = subprocess.run(
-        ["powershell.exe", "-NoProfile", "-Command", command],
+        [powershell, "-NoProfile", "-Command", command],
         cwd=root,
         capture_output=True,
         text=True,
