@@ -1,0 +1,66 @@
+{
+  "$defs": {
+    "VerificationState": {
+      "enum": [
+        "verified",
+        "supported",
+        "provisional",
+        "uncertain",
+        "contradicted",
+        "stale"
+      ],
+      "title": "VerificationState",
+      "type": "string"
+    }
+  },
+  "properties": {
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "project_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Project Ids",
+      "type": "array"
+    },
+    "source_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Source Ids",
+      "type": "array"
+    },
+    "status": {
+      "default": "provisional",
+      "title": "Status",
+      "type": "string"
+    },
+    "summary": {
+      "title": "Summary",
+      "type": "string"
+    },
+    "tags": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Tags",
+      "type": "array"
+    },
+    "title": {
+      "title": "Title",
+      "type": "string"
+    },
+    "verification_state": {
+      "$ref": "#/$defs/VerificationState",
+      "default": "provisional"
+    }
+  },
+  "required": [
+    "title",
+    "summary"
+  ],
+  "title": "ConceptRecord",
+  "type": "object"
+}

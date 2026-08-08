@@ -1,0 +1,152 @@
+{
+  "$defs": {
+    "ProcessingState": {
+      "enum": [
+        "DETECTED",
+        "HASHED",
+        "PRESERVED",
+        "EXTRACTED",
+        "CLASSIFIED",
+        "COMPILED",
+        "INDEXED",
+        "VERIFIED",
+        "COMPLETE",
+        "DUPLICATE",
+        "NEEDS_AI",
+        "NEEDS_REVIEW",
+        "UNSUPPORTED",
+        "FAILED",
+        "QUARANTINED"
+      ],
+      "title": "ProcessingState",
+      "type": "string"
+    },
+    "Sensitivity": {
+      "enum": [
+        "local_only",
+        "cloud_allowed",
+        "sensitive",
+        "blocked"
+      ],
+      "title": "Sensitivity",
+      "type": "string"
+    }
+  },
+  "properties": {
+    "authority": {
+      "default": "unknown",
+      "title": "Authority",
+      "type": "string"
+    },
+    "content_hash": {
+      "title": "Content Hash",
+      "type": "string"
+    },
+    "created_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Created At"
+    },
+    "extracted_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Extracted Path"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "ingested_at": {
+      "format": "date-time",
+      "title": "Ingested At",
+      "type": "string"
+    },
+    "original_filename": {
+      "title": "Original Filename",
+      "type": "string"
+    },
+    "original_path": {
+      "title": "Original Path",
+      "type": "string"
+    },
+    "project_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Project Ids",
+      "type": "array"
+    },
+    "raw_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Raw Path"
+    },
+    "sensitivity": {
+      "$ref": "#/$defs/Sensitivity",
+      "default": "local_only"
+    },
+    "size_bytes": {
+      "title": "Size Bytes",
+      "type": "integer"
+    },
+    "source_type": {
+      "title": "Source Type",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/ProcessingState"
+    },
+    "title": {
+      "title": "Title",
+      "type": "string"
+    },
+    "topics": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Topics",
+      "type": "array"
+    },
+    "type": {
+      "const": "source",
+      "default": "source",
+      "title": "Type",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "source_type",
+    "title",
+    "original_filename",
+    "original_path",
+    "content_hash",
+    "size_bytes",
+    "ingested_at",
+    "status"
+  ],
+  "title": "SourceRecord",
+  "type": "object"
+}

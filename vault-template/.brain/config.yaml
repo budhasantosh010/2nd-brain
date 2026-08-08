@@ -1,0 +1,36 @@
+vault:
+  timezone: Asia/Dubai
+
+ingestion:
+  watch_enabled: true
+  recursive_folder_import: true
+  settle_seconds: 1.0
+
+ai:
+  provider: none
+  model: null
+  allow_cloud_ai: false
+
+embeddings:
+  provider: local
+  dimensions: 384
+
+retrieval:
+  lexical_enabled: true
+  semantic_enabled: true
+  graph_hops: 1
+  result_limit: 12
+
+maintenance:
+  nightly_enabled: true
+  weekly_enabled: true
+  monthly_enabled: true
+
+security:
+  secret_scanning: true
+  raw_sources_immutable: true
+  follow_symlinks: false
+
+review:
+  destructive_changes: block
+  semantic_merges: stage

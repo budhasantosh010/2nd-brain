@@ -1,0 +1,42 @@
+{
+  "sources": [
+    {
+      "filename": "retrieval-architecture.txt",
+      "content": "Global Brain retrieval combines exact FTS5 lexical search, local semantic vectors, metadata filters, reciprocal-rank fusion, one-hop graph expansion, temporal weighting, and evidence verification. Exact marker RETRIEVAL-ARCH-9917."
+    },
+    {
+      "filename": "security-policy.txt",
+      "content": "Unknown imported files are private by default. Credential-like sources are preserved locally and blocked from cloud egress. Exact marker SECURITY-EGRESS-4420."
+    },
+    {
+      "filename": "project-new-state.txt",
+      "content": "The benchmark project's current verified state is release validation, and the next action is push the tested feature branch. Exact marker STATE-CURRENT-7255."
+    }
+  ],
+  "cases": [
+    {
+      "question": "What does RETRIEVAL-ARCH-9917 say about retrieval?",
+      "expected_filename": "retrieval-architecture.txt",
+      "expected_fact": "reciprocal-rank fusion",
+      "forbidden_facts": ["uses only semantic search"]
+    },
+    {
+      "question": "How are private credentials handled according to SECURITY-EGRESS-4420?",
+      "expected_filename": "security-policy.txt",
+      "expected_fact": "blocked from cloud egress",
+      "forbidden_facts": ["uploaded to every provider"]
+    },
+    {
+      "question": "semantic vector retrieval combined with exact lexical evidence verification",
+      "expected_filename": "retrieval-architecture.txt",
+      "expected_fact": "semantic vectors",
+      "forbidden_facts": []
+    },
+    {
+      "question": "What is the favorite dessert of PERSON-NOT-IN-BRAIN-12345?",
+      "expected_filename": null,
+      "expected_fact": null,
+      "forbidden_facts": ["chocolate", "ice cream", "cake"]
+    }
+  ]
+}

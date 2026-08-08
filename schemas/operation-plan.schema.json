@@ -1,0 +1,74 @@
+{
+  "$defs": {
+    "PlannedWrite": {
+      "properties": {
+        "content": {
+          "title": "Content",
+          "type": "string"
+        },
+        "expected_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Hash"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "content"
+      ],
+      "title": "PlannedWrite",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "description": {
+      "title": "Description",
+      "type": "string"
+    },
+    "metadata": {
+      "additionalProperties": true,
+      "title": "Metadata",
+      "type": "object"
+    },
+    "operation_id": {
+      "title": "Operation Id",
+      "type": "string"
+    },
+    "permission_level": {
+      "maximum": 3,
+      "minimum": 0,
+      "title": "Permission Level",
+      "type": "integer"
+    },
+    "writes": {
+      "items": {
+        "$ref": "#/$defs/PlannedWrite"
+      },
+      "title": "Writes",
+      "type": "array"
+    }
+  },
+  "required": [
+    "created_at",
+    "permission_level",
+    "description"
+  ],
+  "title": "OperationPlan",
+  "type": "object"
+}

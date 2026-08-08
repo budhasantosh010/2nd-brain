@@ -1,0 +1,65 @@
+# Runtime personal brain (never public)
+vault/
+
+# Secrets and local provider configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*.json
+secrets*.json
+
+# Runtime databases / indexes / embeddings
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite-shm
+*.sqlite-wal
+*.lancedb/
+*.chroma/
+*.faiss
+/embeddings/
+/indexes/
+
+# Runtime state
+/logs/
+/cache/
+.brain/
+**/.brain/
+# The tracked vault template needs one safe, non-secret default config.
+!vault-template/.brain/
+vault-template/.brain/*
+!vault-template/.brain/config.yaml
+*.log
+
+# Raw/private content accidentally copied outside vault
+raw-sources/
+private-data/
+private/
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Test scratch
+.tmp/
+tmp/

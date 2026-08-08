@@ -1,0 +1,99 @@
+{
+  "properties": {
+    "affected_paths": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Affected Paths",
+      "type": "array"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "current_state": {
+      "default": "",
+      "title": "Current State",
+      "type": "string"
+    },
+    "decision": {
+      "default": "",
+      "title": "Decision",
+      "type": "string"
+    },
+    "evidence": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Evidence",
+      "type": "array"
+    },
+    "operation_id": {
+      "title": "Operation Id",
+      "type": "string"
+    },
+    "proposal": {
+      "default": "",
+      "title": "Proposal",
+      "type": "string"
+    },
+    "proposed_state": {
+      "default": "",
+      "title": "Proposed State",
+      "type": "string"
+    },
+    "reason": {
+      "default": "",
+      "title": "Reason",
+      "type": "string"
+    },
+    "recommendation": {
+      "default": "",
+      "title": "Recommendation",
+      "type": "string"
+    },
+    "review_id": {
+      "title": "Review Id",
+      "type": "string"
+    },
+    "risk": {
+      "title": "Risk",
+      "type": "string"
+    },
+    "risks": {
+      "default": "",
+      "title": "Risks",
+      "type": "string"
+    },
+    "rollback": {
+      "default": "",
+      "title": "Rollback",
+      "type": "string"
+    },
+    "status": {
+      "default": "pending",
+      "enum": [
+        "pending",
+        "approved",
+        "rejected",
+        "applied",
+        "expired"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "type": {
+      "title": "Type",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "risk",
+    "created_at",
+    "operation_id"
+  ],
+  "title": "ReviewItemModel",
+  "type": "object"
+}
