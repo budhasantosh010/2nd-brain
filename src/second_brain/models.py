@@ -197,6 +197,7 @@ class RelationshipRecord(BaseModel):
     relation: RelationshipType
     source_id: str | None = None
     provisional: bool = True
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class EvidenceItem(BaseModel):

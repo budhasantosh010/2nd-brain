@@ -15,9 +15,9 @@ import yaml
 
 from second_brain.config import BrainConfig, load_config
 from second_brain.embeddings.factory import create_embedding_provider
-from second_brain.knowledge.contradiction import contradiction_candidate
+from second_brain.knowledge.contradiction import ConflictKind, assess_claim_pair, lexical_overlap
 from second_brain.knowledge.extractor import KnowledgeExtractor
-from second_brain.knowledge.linker import derived_from, supports
+from second_brain.knowledge.linker import derived_from, related_to, supports
 from second_brain.knowledge.matcher import ConceptMatcher, MatchAction
 from second_brain.models import (
     ClaimRecord,
@@ -146,17 +146,19 @@ class KnowledgeCompiler:
             if source_id not in concept.source_ids:
                 concept.source_ids.append(source_id)
             match = self.matcher.match(concept)
-            if match.action in {MatchAction.NEW, MatchAction.UNRELATED}:
+            if match.action in {MatchAction.NEW, MatchAction.UNRELATED, MatchAction.RELATED}:
                 rel = self._concept_path(concept)
                 writes.append(PlannedWrite(path=rel, content=self._render_concept(concept)))
                 db_concepts.append((concept, rel))
                 relationships.append(derived_from(concept.id, source_id))
+                if match.action == MatchAction.RELATED and match.existing_id:
+                    relationships.append(related_to(concept.id, match.existing_id, source_id))
                 result.created_concepts.append(concept.id)
                 concept_resolutions.append(
                     ConceptResolution(
                         incoming_id=concept.id,
                         canonical_id=concept.id,
-                        action="created",
+                        action="related" if match.action == MatchAction.RELATED else "created",
                         evidence=[source_id],
                     )
                 )
@@ -216,39 +218,71 @@ class KnowledgeCompiler:
 
         with self.store.connect() as conn:
             existing_claim_rows = conn.execute("SELECT id, statement FROM claims").fetchall()
+        existing_claims = {
+            str(row["id"]): str(row["statement"]) for row in existing_claim_rows
+        }
         incoming_claims_seen: list[ClaimRecord] = []
+        semantic_provider = self.vectors.embedding if self.vectors.profile.learned else None
+
+        def record_assessment(left_id: str, left: str, right: ClaimRecord) -> None:
+            assessment = assess_claim_pair(left, right.statement, provider=semantic_provider)
+            if assessment.kind == ConflictKind.CONFLICT:
+                conflict_id = f"CNF-{uuid4()}"
+                conflicts_to_insert.append(
+                    (conflict_id, left_id, right.id, assessment.reason)
+                )
+                relationships.append(
+                    RelationshipRecord(
+                        from_id=left_id,
+                        to_id=right.id,
+                        relation=RelationshipType.CONTRADICTS,
+                        source_id=source_id,
+                        provisional=True,
+                        metadata={
+                            "candidate_score": assessment.score,
+                            "reason": assessment.reason,
+                        },
+                    )
+                )
+            elif assessment.kind == ConflictKind.SUPERSESSION:
+                relationships.append(
+                    RelationshipRecord(
+                        from_id=right.id,
+                        to_id=left_id,
+                        relation=RelationshipType.SUPERSEDES,
+                        source_id=source_id,
+                        provisional=True,
+                        metadata={
+                            "temporal": True,
+                            "candidate_score": assessment.score,
+                            "reason": assessment.reason,
+                        },
+                    )
+                )
+
         for claim in extraction.claims:
             claim.source_id = source_id
-            for existing_claim in existing_claim_rows:
-                existing_id = str(existing_claim["id"])
-                existing_statement = str(existing_claim["statement"])
-                if contradiction_candidate(existing_statement, claim.statement):
-                    conflict_id = f"CNF-{uuid4()}"
-                    explanation = "Conservative contradiction candidate: high statement overlap with opposite negation; preserve both and require verification."
-                    conflicts_to_insert.append((conflict_id, existing_id, claim.id, explanation))
-                    relationships.append(
-                        RelationshipRecord(
-                            from_id=existing_id,
-                            to_id=claim.id,
-                            relation=RelationshipType.CONTRADICTS,
-                            source_id=source_id,
-                            provisional=True,
-                        )
+            candidate_ids = {
+                existing_id
+                for existing_id, statement in existing_claims.items()
+                if lexical_overlap(statement, claim.statement) >= 0.35
+            }
+            if self.vectors.profile.learned:
+                candidate_ids.update(
+                    hit.object_id
+                    for hit in self.vectors.search(
+                        claim.statement,
+                        limit=8,
+                        object_types={"claim"},
                     )
+                    if hit.score >= 0.55
+                )
+            for existing_id in sorted(candidate_ids):
+                existing_statement = existing_claims.get(existing_id)
+                if existing_statement is not None:
+                    record_assessment(existing_id, existing_statement, claim)
             for earlier_claim in incoming_claims_seen:
-                if contradiction_candidate(earlier_claim.statement, claim.statement):
-                    conflict_id = f"CNF-{uuid4()}"
-                    explanation = "Conservative contradiction candidate within one extracted source; preserve both statements for verification."
-                    conflicts_to_insert.append((conflict_id, earlier_claim.id, claim.id, explanation))
-                    relationships.append(
-                        RelationshipRecord(
-                            from_id=earlier_claim.id,
-                            to_id=claim.id,
-                            relation=RelationshipType.CONTRADICTS,
-                            source_id=source_id,
-                            provisional=True,
-                        )
-                    )
+                record_assessment(earlier_claim.id, earlier_claim.statement, claim)
             incoming_claims_seen.append(claim)
             materialized_path: str | None = None
             if claim.materialize:
