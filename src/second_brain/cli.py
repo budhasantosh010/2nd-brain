@@ -52,7 +52,6 @@ backup_app = typer.Typer(
     invoke_without_command=True,
     no_args_is_help=False,
 )
-backup_app = typer.Typer(help="Create and verify durable brain backups.", no_args_is_help=True)
 app.add_typer(review_app, name="review")
 app.add_typer(maintain_app, name="maintain")
 app.add_typer(mcp_app, name="mcp")
